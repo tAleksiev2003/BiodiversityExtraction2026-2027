@@ -28,11 +28,11 @@ EXECUTIVE SUMMARY — Base Model 5: Bag-of-Words + Complement Naive Bayes Baseli
        Naive Bayes `taxa.species_group` predictions using the `"-"` collective-term rule.
 - Results on Dev Set (100 valid papers, deterministic):
     * C1 Leaderboard Macro-F1 : 0.4799
-    * C1 + C2b Macro-F1       : 0.3547
-    * C1 + C2b Micro-F1       : 0.3587
+    * C1 + C2b Macro-F1       : 0.3140
+    * C1 + C2b Micro-F1       : 0.3564
     * Per-Field Highlights    : ecosystem_type.category (0.6154), habitat (0.5680),
                                 biodiversity_level (0.4218), ecosystem_type.term (0.3942).
-    * Runtime                 : ~1.9s
+    * Runtime                 : ~3.9s
 ========================================================================================
 """
 
