@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 """
-Base Model 2: Random Baseline (Evaluated across 3 fixed seeds: 42, 43, 44).
+=========================================================================================
+EXECUTIVE SUMMARY: Base Model 2 – Random Baseline (`random_baseline.py`)
+=========================================================================================
+- Concept & Goal:
+  Establishes the stochastic lower-bound baseline on the 100 valid Dev papers without
+  reading any paper text or utilizing class-frequency priors. It measures the expected F1
+  score of blind guessing under the official JSON schema constraints.
 
-Uniformly samples one allowed enum value per field from the official JSON schemas
-(`schemas/core_fields.json` and `schemas/biodiversity.json`) and one empirical
-scientific/German species name from `data/gold/train.jsonl`.
+- How It Works:
+  1. Loads the allowed German enum values directly from the official JSON schemas
+     (`schemas/core_fields.json` and `schemas/biodiversity.json`).
+  2. Extracts the vocabulary of unique `taxa.scientific_name` and `taxa.german_name`
+     strings observed in `data/gold/train.jsonl` (since species names are open-vocabulary).
+  3. For each paper, uniformly samples one random value per schema field using a seeded
+     pseudo-random number generator (`random.Random(seed)`).
+  4. Following the course evaluation guidelines (`HowTo_Approach_an_NLP_Task.pdf`), this
+     stochastic model is evaluated across 3 fixed seeds (`[42, 43, 44]`) and reports
+     Mean ± Standard Deviation across all metrics.
 
-Following the guidelines in `HowTo_Approach_an_NLP_Task.pdf`, this stochastic baseline
-is evaluated across three fixed random seeds ([42, 43, 44]) and logs both individual
-seed runs and aggregated Mean +/- Std statistics to `outputs/base_models/random_baseline/`.
+- Results on Dev Set (100 valid papers, Seeds `[42, 43, 44]`):
+  * C1 Leaderboard Macro-F1 : 0.1006 ± 0.0047
+  * C1 + C2b Macro-F1       : 0.0607 ± 0.0023
+  * C1 + C2b Micro-F1       : 0.0600 ± 0.0029
+  * Runtime                 : ~0.03s
+=========================================================================================
 """
 
 import json
@@ -31,11 +47,15 @@ from src.evaluation.evaluator import (
     save_reproducible_run,
 )
 
+# Fixed random seeds for multi-run evaluation of stochastic baselines
 SEEDS: list[int] = [42, 43, 44]
 
 
 def load_allowed_enums(schemas_dir: Path) -> dict[str, list[str]]:
-    """Loads the official allowed German enum lists from the C1 and C2b JSON schemas."""
+    """
+    Loads the official allowed German enum lists from the C1 (`core_fields.json`)
+    and C2b (`biodiversity.json`) JSON schemas so random predictions remain 100% schema-valid.
+    """
     core = json.loads((schemas_dir / "core_fields.json").read_text(encoding="utf-8"))
     bio = json.loads((schemas_dir / "biodiversity.json").read_text(encoding="utf-8"))
     return {
@@ -56,7 +76,10 @@ def predict_single_paper_random(
     train_ger_names: list[str],
     rng: random.Random,
 ) -> dict[str, Any]:
-    """Constructs a random schema-compliant JSON prediction using the provided seeded RNG."""
+    """
+    Constructs a random schema-compliant JSON prediction for a single paper `zot_id`
+    by sampling uniformly from each field's candidate pool using the seeded RNG `rng`.
+    """
     return {
         "zotitem_ptr_id": zot_id,
         "habitat": [rng.choice(enums["habitat"])],
@@ -91,12 +114,14 @@ def main() -> None:
     dev_ids_path = REPO_ROOT / "data" / "gold" / "dev_100_ids.txt"
     schemas_dir = REPO_ROOT / "schemas"
 
+    # Load gold annotations and filter to the 100 valid Dev papers that have PDFs
     train_records = load_jsonl_by_id(train_path)
     dev_records = load_jsonl_by_id(dev_path)
     dev_100_ids = sorted(
         {line.strip() for line in dev_ids_path.read_text().splitlines() if line.strip()}
     )
 
+    # Build candidate pools from schemas (enums) and training annotations (open-text species names)
     enums = load_allowed_enums(schemas_dir)
     train_sci_names = sorted(
         {v for r in train_records.values() for v in extract_field_set(r, "taxa.scientific_name")}
@@ -108,6 +133,7 @@ def main() -> None:
     seed_metrics: dict[int, dict[str, Any]] = {}
     primary_predictions: dict[str, dict[str, Any]] = {}
 
+    # Evaluate independently across all 3 fixed random seeds
     for seed in SEEDS:
         rng = random.Random(seed)
         preds = {

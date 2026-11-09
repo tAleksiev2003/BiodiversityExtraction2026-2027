@@ -1,15 +1,39 @@
 #!/usr/bin/env python3
 """
-Base Model 3: Dictionary / Keyword Lookup Baseline.
+=========================================================================================
+EXECUTIVE SUMMARY: Base Model 3 – Dictionary / Keyword Lookup (`dictionary_baseline.py`)
+=========================================================================================
+- Concept & Goal:
+  First content-aware baseline that actually reads the text of each scientific paper.
+  Since ~85% of the research papers are written in English while all target schema
+  categories are in German, this model bridges the cross-lingual gap using curated
+  bilingual (English/German) regular expression lexicons and an empirical species lookup
+  table derived from the 908 training annotations (`data/gold/train.jsonl`).
 
-Combines a bilingual (English + German) domain keyword lexicon for C1/C2b enum categories
-with an empirical species lookup lexicon extracted from `data/gold/train.jsonl`.
+- How It Works:
+  1. Text Extraction & Caching: For each of the 100 Dev papers, extracts `bibtex_title`
+     plus the first 2 pages of `data/raw_pdfs/dev/<id>.pdf` (Title, Abstract, Intro) and
+     caches the text in `data/parsed_text/dev/` for millisecond re-runs.
+  2. Bilingual Keyword Regex Matching: Scans the lowercased paper text for domain cues
+     mapping to `habitat` (6 classes), `biodiversity_level` (7 classes), and
+     `taxa.species_group` (12 classes), capping predictions at the top 2–3 hits to
+     prevent false-positive explosion on full-page text.
+  3. Training Taxa Lexicon (1,834 entries): Matches exact scientific and German species
+     names observed in `train.jsonl` and automatically assigns their canonical
+     `(scientific_name, german_name, species_group)` triple. For broad taxonomic group
+     matches, applies the collective-term convention (`scientific_name = "-"`).
+  4. Hierarchical & Sparsity Fallbacks: Maps the primary detected habitat to its most
+     frequent `ecosystem_type` (category + term), predicts `ecosystem_service` only on
+     explicit trigger phrases (respecting its 78.1% empty rate), and falls back to the
+     Majority Baseline if no keyword fires.
 
-For each Dev paper (`data/gold/dev_100_ids.txt`), the model extracts and caches the text
-of the first 4 pages of the PDF (covering Title, Abstract, Introduction, and Study Area / Methods)
-from `data/raw_pdfs/dev/` (falling back to `bibtex_title` if the PDF is not present).
-
-All standardized reproducible artifacts are written to `outputs/base_models/dictionary_baseline/`.
+- Results on Dev Set (100 valid papers, deterministic):
+  * C1 Leaderboard Macro-F1 : 0.3438  (+67% relative over Majority Baseline's 0.2055)
+  * C1 + C2b Macro-F1       : 0.2721  (+90% relative over Majority Baseline's 0.1429)
+  * C1 + C2b Micro-F1       : 0.3216
+  * Per-Field Highlights    : habitat (0.5830), biodiversity_level (0.4310),
+                              taxa.species_group (0.3719), ecosystem_type.category (0.4530).
+=========================================================================================
 """
 
 from pathlib import Path

@@ -13,6 +13,11 @@ This document defines the mandatory coding, architectural, and workflow standard
 
 ## 2. Code Quality & Documentation Standards
 - **Language:** All source code, function/variable names, type annotations, docstrings, and inline comments **must be written in clean, idiomatic English**.
+- **Top-of-File Executive Summary & Extensive Comments:** Every model script (`src/models/.../*.py`) **must** begin with a structured English `EXECUTIVE SUMMARY` docstring block summarizing:
+  1. *Concept & Goal* (what hypothesis/baseline the script tests),
+  2. *How It Works* (feature extraction, modeling, handling of empty fields & Subtask C2b conventions), and
+  3. *Results on Dev Set* (exact C1 Macro-F1, C1+C2b Macro-F1, Micro-F1, and key takeaways).
+  In addition, all functions and non-trivial code blocks must be thoroughly commented in English so teammates and instructors can immediately understand every step.
 - **Modularity:** Every model tested must be implemented as **one standalone, self-contained Python script** inside its corresponding category folder:
   - Base / Trivial & Classical Models: `src/models/base_models/<model_id>.py`
   - LLM & Advanced Architectures: `src/models/architectures/<model_id>.py`
