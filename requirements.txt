@@ -1,0 +1,5 @@
+# Core dependencies for ANLP Shared Task C (C1 + C2b)
+pypdf>=5.0.0
+pydantic>=2.9.0
+scikit-learn>=1.5.0
+codecarbon>=2.7.0

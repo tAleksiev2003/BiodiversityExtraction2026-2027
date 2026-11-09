@@ -1,0 +1,28 @@
+# Personal checklists & local notes (gitignored)
+AUFGABENLISTE.md
+TODO.md
+notes/
+
+# Course datasets & copyright-protected PDFs (never commit!)
+data/gold/*
+data/raw_pdfs/*
+data/parsed_text/*
+!data/**/.gitkeep
+*.pdf
+
+# Generated model outputs & CodaBench submissions
+outputs/base_models/*
+outputs/architectures/*
+outputs/all_models_comparison.md
+!outputs/**/.gitkeep
+
+# Python & OS environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.DS_Store
+.ipynb_checkpoints/
