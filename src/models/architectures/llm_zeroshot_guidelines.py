@@ -10,7 +10,8 @@ EXECUTIVE SUMMARY — Architecture Model 1: Zero-Shot LLM with Annotation Guidel
     prompt contains the *official annotation guidelines*: the exact German enum values and
     the schema descriptions from `schemas/core_fields.json` + `schemas/biodiversity.json`,
     plus the annotation conventions we discovered during data exploration (empty fields
-    are frequent and valid, "-" as scientific_name for collective taxonomic groups,
+    are frequent and valid, collective taxonomic groups carry Latin collective names
+    such as 'Pisces'/'Aves'/'Plantae' as scientific_name with '-' only as fallback,
     ecosystem_service only on explicit evidence). This model establishes the LLM reference
     point against which all later ablations (Few-Shot RAG, decomposed prompting, chunking)
     will be measured.
@@ -29,7 +30,8 @@ EXECUTIVE SUMMARY — Architecture Model 1: Zero-Shot LLM with Annotation Guidel
        fences), then every enum field is normalized (exact -> whitespace/case-insensitive
        -> fuzzy difflib match, threshold 0.85; unmatchable values are dropped, not kept as
        false positives). The collective-term convention is enforced as a safety net
-       (collective_term=true -> scientific_name="-", german_name=group name). One repair
+       (collective_term=true without a scientific_name -> "-" fallback; missing
+       german_name -> the German species_group enum value). One repair
        retry per paper on invalid JSON; total failures fall back to an all-empty prediction.
     5. Reproducibility: Checkpointed per-paper predictions (crashed runs resume for free),
        token accounting, and `save_reproducible_run()` artifacts + leaderboard update.
@@ -126,10 +128,15 @@ CONVENTIONS: list[str] = [
     "collective_term=false, the Latin binomial as scientific_name, and the German name "
     "(or null if unknown).",
     "taxa: if the study examines a broad taxonomic group or many species at once "
-    "(e.g. 'vascular plants', 'fishes', 'soil invertebrates'), output ONE entry with "
-    "collective_term=true, scientific_name=\"-\" (literally a hyphen — this is the "
-    "annotation convention for collective terms), and the German collective name as "
-    "german_name.",
+    "(e.g. 'fishes', 'birds', 'vascular plants'), output ONE entry with "
+    "collective_term=true. For scientific_name use the LATIN collective name of the "
+    "group (e.g. 'Pisces' for fishes, 'Aves' for birds, 'Plantae' or 'Tracheophyta' for "
+    "plants, 'Bacteria', 'Mollusca', 'Arthropoda', 'Nematoda'); use \"-\" (a hyphen) "
+    "ONLY when the text gives no usable collective designation. german_name = the "
+    "German collective name (e.g. 'Fische').",
+    "biodiversity_level: distinguish carefully between 'Artenvielfalt' (HOW MANY "
+    "species — richness/counts) and 'Zusammensetzung der Artengemeinschaft' (WHICH "
+    "species — community composition, identity shifts, community structure).",
     "biodiversity_variable: short German nouns describing WHAT was measured about the "
     "taxa (e.g. \"Abundanz\", \"Artenzahl\", \"Biomasse\", \"Deckungsgrad\").",
 ]
@@ -564,9 +571,12 @@ def normalize_prediction(raw_pred: dict[str, Any], spec: dict[str, dict[str, Any
             sci = str(item.get("scientific_name") or "").strip() or None
             ger = str(item.get("german_name") or "").strip() or None
             if collective:
-                # Annotation convention: collective groups carry '-' as scientific name
-                # and the German collective name (the enum values are German group names).
-                sci = "-"
+                # Collective groups: gold usually carries the LATIN collective name
+                # ('Pisces', 'Aves', 'Plantae', ...); '-' is only the fallback when the
+                # model named no usable designation. The German collective name
+                # defaults to the (German) species_group enum value.
+                if sci is None:
+                    sci = "-"
                 if ger is None:
                     ger = group
             key = (group, sci, ger)
