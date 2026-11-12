@@ -7,7 +7,8 @@ This document defines the mandatory coding, architectural, and workflow standard
 ## 1. Collaboration & Pacing Rules
 - **Step-by-Step Workflow:** Never generate multiple unrequested models or jump ahead in the roadmap. Build, inspect, and verify **one single component or model at a time** in agreement with the user.
 - **Branch Discipline:** Work happens on dedicated feature/experiment branches (e.g., `lennard_testing`). Never push experimental code directly to `main`.
-- **Data Privacy & Git Hygiene:** Course dataset files (`data/gold/`, `data/raw_pdfs/`, `data/parsed_text/`), generated model outputs (`outputs/`), and personal checklists (`AUFGABENLISTE.md`) must remain excluded via `.gitignore` and must never be committed to Git.
+- **Data Privacy & Git Hygiene:** Course dataset files (`data/gold/`, `data/raw_pdfs/`, `data/parsed_text/`), generated model outputs (`outputs/`), and personal checklists (`AUFGABENLISTE.md`) must remain excluded via `.gitignore` and must never be committed to Git. There is no Git-LFS on the GitHub remote — datasets and outputs travel via `rsync` from the dev machine, never via Git (a per-remote ignore is technically impossible: one branch carries the same files to every push URL).
+- **Server Workflow (lenlenovo) — always sync before runs:** Long benchmark runs execute on the home server `lenlenovo` (`~/Home/BiodiversityExtraction2026-2027`, fresh clone; origin = Gitea mirror on lenserver-hp, reachable via Tailscale). Code is developed **locally** and pushed to Gitea, so before starting or evaluating any run on the server: `git fetch && git pull` (code) and verify `data/` is current (rsync). Never edit code directly on the server — changes made there will be silently overwritten by the next pull.
 
 ---
 
