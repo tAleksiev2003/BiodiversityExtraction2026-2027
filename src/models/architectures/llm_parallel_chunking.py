@@ -115,7 +115,7 @@ Document Section ({section_name}):
 \"\"\"
 {chunk_text}
 \"\"\"
-
+{field_guidelines}
 ALLOWED VALUES REFERENCE (use these EXACT strings for the listed fields):
 {enum_reference}
 (ecosystem_type.term and ecosystem_service.term: quote the term as written in the section,
@@ -136,6 +136,68 @@ Output format:
     }}
   ]
 }}
+"""
+
+# --------------------------------------------------------------------------------------
+# v2: thorough per-field requirement descriptions (guideline-paper insight: detailed
+# field-level decision rules beat short convention lists). Injected into the chunk
+# prompt via --field-guidelines; each rule is distilled from the official schema
+# descriptions, the 908-paper gold conventions, and our Dev error analysis
+# (biodiversity_level + ecosystem_service over-firing were the main FP sources).
+# --------------------------------------------------------------------------------------
+
+FIELD_GUIDELINES: str = """# FIELD REQUIREMENTS (decide per finding, precision over recall)
+
+GENERAL RULE: A finding is only valid if THIS section shows that the study itself
+samples, measures, analyzes, or manages the aspect. Context mentions, related-work
+citations, or outlook statements do NOT count. When unsure, OMIT — empty predictions
+are correct and frequent (ecosystem_service ~78%, ecosystem_type ~50%,
+biodiversity_level ~42% of studies have none).
+
+- habitat (max 2): The ecosystem(s) where the study's own sampling/intervention
+  happens. agriculture/grassland/cropland/field experiments -> "Agrar- und Offenland";
+  rivers/lakes/streams/wetlands/floodplains -> "Binnengewässer und Auen"; seas/coast/
+  wadden sea -> "Küsten und Küstengewässer"; forest inventories/forest stands ->
+  "Wald"; soil organisms/soil processes as the subject -> "Boden"; cities/urban green/
+  parks -> "Urbane Räume". Do NOT infer a habitat from a species' general ecology —
+  only from where THIS study works. Skip if the section gives no concrete location.
+
+- biodiversity_level (max 2, STRICTEST FIELD — over-prediction is penalized): Only
+  predict a level the study explicitly MEASURES or analyzes as a biodiversity aspect:
+  counts/richness/species numbers -> "Artenvielfalt"; WHICH species occur, community
+  composition/turnover/identity shifts -> "Zusammensetzung der Artengemeinschaft";
+  traits/functional groups/ecosystem processes -> "Funktionelle Diversität";
+  genetic markers/DNA/alleles -> "Genetische Diversität"; diversity OF habitat
+  structures -> "Habitatdiversität"; physical structure measures (layers, dead wood)
+  -> "Strukturelle Diversität"; evolutionary relatedness/phylogenies ->
+  "Phylogenetische Diversität". Merely sampling or listing species is NOT a
+  biodiversity level. If the section only reports species records, emit NOTHING here.
+
+- ecosystem_type (max 2): Only when the study explicitly characterizes its sites by a
+  concrete biotope/ecosystem type. category: marine/coastal biotopes -> "I Biotoptypen-
+  gruppen der Meere und Küsten"; inland waters -> "II ... Binnengewässer"; terrestrial/
+  semiterrestrial inland (the normal case) -> "III ..."; technical/urban structures ->
+  "IV Technische Biotoptypengruppen"; alpine -> "V ..."; anything else -> "VI Weitere".
+  term = the specific biotope named in the text (short German phrase), null if none.
+
+- taxa (the study's own focus organisms, not background mentions): For each distinct
+  taxon: species_group from the allowed values. A SPECIES-level focus ->
+  {"collective_term": false, "scientific_name": Latin binomial, "german_name": German
+  name or null}. A broad GROUP focus ('fishes', 'birds', 'vascular plants') ->
+  {"collective_term": true, "scientific_name": Latin collective (Pisces, Aves,
+  Plantae, Bacteria, Mollusca, Arthropoda, ...) or "-" if the text names none,
+  "german_name": German collective (Fische, Vögel, ...)}. Tables of species in THIS
+  section's results count; species in cited literature do not.
+
+- ecosystem_service (max 2, RAREST FIELD — highest precision bar): ONLY an explicit
+  benefit that nature provides to humans which the study itself investigates:
+  pollination, water retention/purification, carbon storage, flood protection,
+  erosion control, recreation, timber/food provision. Biodiversity monitoring per se,
+  species conservation for its own sake, or habitat management without a human-benefit
+  framing are NOT services. Categories: "Versorgungsleistungen" (provisioning),
+  "Regulierungs- und Erhaltungsleistungen" (regulating/maintaining),
+  "Kulturelle Leistungen" (cultural). If in doubt, OMIT.
+
 """
 
 
@@ -556,6 +618,11 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=30, help="Rate limit requests/minute")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of papers evaluated")
+    parser.add_argument(
+        "--field-guidelines",
+        action="store_true",
+        help="v2: inject thorough per-field requirement descriptions into the chunk prompt",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Offline deterministic mock test")
     parser.add_argument(
         "--no-save",
@@ -598,8 +665,11 @@ def main() -> None:
         mode_tag = "dryrun"
     else:
         model_slug = actual_model.replace("/", "_").replace(":", "_")
-        run_model_id = f"{MODEL_ID}_{args.provider}_{model_slug}"
-        mode_tag = f"api_{args.provider}_{model_slug}"
+        # v2 runs (field guidelines) get their own suffix so checkpoints, artifacts,
+        # and leaderboard entries never mix with the v1 baseline runs.
+        variant = "_fg" if args.field_guidelines else ""
+        run_model_id = f"{MODEL_ID}_{args.provider}_{model_slug}{variant}"
+        mode_tag = f"api_{args.provider}_{model_slug}{variant}"
 
     ckpt_dir = REPO_ROOT / "outputs" / CATEGORY / run_model_id
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -638,6 +708,7 @@ def main() -> None:
                 section_name=ch["section_name"],
                 chunk_text=ch["text"],
                 enum_reference=enum_reference,
+                field_guidelines=FIELD_GUIDELINES if args.field_guidelines else "",
             )
 
             if isinstance(client, ChunkMockClient):
@@ -708,6 +779,7 @@ def main() -> None:
                 "model": actual_model,
                 "temperature": args.temperature,
                 "rpm_limit": args.rpm,
+                "field_guidelines": bool(args.field_guidelines),
                 "n_papers": len(dev_ids),
                 "chunk_page_groups": [list(g) for g in CHUNK_PAGE_GROUPS],
                 "quote_verification": "exact | anchor30 | fuzzy>=0.75-contiguous",
