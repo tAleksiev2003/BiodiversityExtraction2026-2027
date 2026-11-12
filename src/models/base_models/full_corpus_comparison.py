@@ -132,7 +132,6 @@ def load_splits(limit: int | None) -> dict[str, dict[str, Any]]:
         dev_ids = dev_ids[:limit]
         train_ids = train_ids[:limit]
     return {
-        "fit_ids": sorted(train_records.keys()),
         "dev": {
             "ids": dev_ids,
             "gold": dev_records,
@@ -376,8 +375,9 @@ def main() -> None:
     started = time.time()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     splits = load_splits(args.limit)
-    # Fits always use the FULL training corpus; only evaluation lists may be limited.
-    shared = {"train_records": splits["train"]["gold"], "train_ids": splits["fit_ids"]}
+    # Fits always use the FULL training corpus (all keys of train.jsonl); only the
+    # evaluation id lists may be limited by --limit.
+    shared = {"train_records": splits["train"]["gold"], "train_ids": sorted(splits["train"]["gold"].keys())}
 
     # Model registry in official numbering order; ensemble runs last from voter outputs.
     registry: dict[str, Callable] = {
