@@ -118,7 +118,7 @@ Document Section ({section_name}):
 {field_guidelines}
 ALLOWED VALUES REFERENCE (use these EXACT strings for the listed fields):
 {enum_reference}
-(ecosystem_type.term and ecosystem_service.term: quote the term as written in the section,
+{term_reference}(ecosystem_type.term and ecosystem_service.term: quote the term as written in the section,
  as a short German noun phrase; it is matched against the schema vocabulary afterwards.)
 
 Extract all findings present in THIS section. Each finding needs "field", "value", and "quote".
@@ -137,6 +137,88 @@ Output format:
   ]
 }}
 """
+
+# --------------------------------------------------------------------------------------
+# Optional experiment switches (isolated flags => isolated checkpoints/leaderboard rows)
+#   --term-enum   E1: list the full ecosystem_type.term (46) + ecosystem_service.term (67)
+#                     enums in the chunk prompt + relaxed fallback matching in the merge
+#                 => fixes the measured 0.000 term F1 (free-text quotes died in strict
+#                    enum normalization; Architecture 1 reached 0.49 with full enums)
+#   --clean-text  E2: strip URLs/DOIs/emails and truncate at the references heading
+#                     (the "links at the end" noise in chunk 4 / footers)
+#   --translate-hint E3: instruct English-internal reasoning while keeping verbatim
+#                     German quotes + German enum output (cheap variant of full
+#                     pre-translation; Qwen-family models reason better in English)
+# --------------------------------------------------------------------------------------
+
+import re as _re
+
+_URL_DOI_RE = _re.compile(
+    r"(https?://\S+|www\.\S+|doi:\s*\S+|DOI:\s*\S+|[\w.+-]+@[\w-]+\.[\w.]+)", _re.IGNORECASE
+)
+_REFERENCES_HEADING_RE = _re.compile(
+    r"^\s{0,4}(literatur(?:verzeichnis)?|references|bibliography|schlüsselquellen|quellenverzeichnis)\s*:?\s*$",
+    _re.IGNORECASE,
+)
+
+
+def clean_chunk_text(text: str) -> str:
+    """E2 --clean-text: removes reference lists and URL/DOI/email noise from a chunk."""
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        if _REFERENCES_HEADING_RE.match(line):
+            lines = lines[:idx]  # references and everything after them: no findings there
+            break
+    cleaned = _URL_DOI_RE.sub(" ", "\n".join(lines))
+    return " ".join(cleaned.split())  # collapse whitespace runs
+
+
+def build_term_reference(field_spec: dict[str, dict[str, Any]]) -> str:
+    """E1 --term-enum: renders the two large term vocabularies as exact-string references."""
+    parts = []
+    for key in ("ecosystem_type.term", "ecosystem_service.term"):
+        parent, sub = key.split(".", 1)
+        values = field_spec[parent]["subfields"][sub]["values"]
+        rendered = ", ".join(f'"{v}"' for v in values)
+        parts.append(f"- {key} ({len(values)} values, use the EXACT string): {rendered}")
+    return "\n".join(parts)
+
+
+def match_term_relaxed(
+    field_spec: dict[str, dict[str, Any]], key: str, value: str
+) -> str | None:
+    """
+    E1 fallback for free-text terms: maps onto the official enum via canonicalized
+    substring containment or relaxed fuzzy matching. Strict exact/fuzzy-0.85 matching
+    dropped virtually every term prediction (term F1 was 0.000 in Pipeline B v1/v2).
+    """
+    if "." in key:
+        parent, sub = key.split(".", 1)
+        allowed = field_spec[parent]["subfields"][sub]["values"]
+    else:
+        allowed = field_spec[key]["values"]
+    raw = " ".join(str(value).lower().split())
+
+    def canon(s: str) -> str:
+        return _re.sub(r"[\s\-–—()/.,;:]+", "", s.lower())
+
+    canon_value = canon(raw)
+    for cand in allowed:
+        canon_cand = canon(cand)
+        if canon_value and (
+            canon_value in canon_cand or (len(canon_value) > 8 and canon_cand in canon_value)
+        ):
+            return cand
+    close = difflib.get_close_matches(raw, allowed, n=1, cutoff=0.6)
+    return close[0] if close else None
+
+
+TRANSLATE_HINT = (
+    "\nREASONING LANGUAGE: The section is mostly German. Think and decide internally in "
+    "English (higher accuracy), but the verbatim quote MUST still be copied word-for-word "
+    "from the original German text, and all output values must be the exact German enum "
+    "strings from the allowed values.\n"
+)
 
 # --------------------------------------------------------------------------------------
 # v2: thorough per-field requirement descriptions (guideline-paper insight: detailed
@@ -440,6 +522,7 @@ def merge_chunk_votes(
         term = cand.get("term")
         term = (
             normalize_enum_value(field_spec, "ecosystem_type.term", term)
+            or (match_term_relaxed(field_spec, "ecosystem_type.term", term) if term else None)
             if term
             else None
         )
@@ -500,6 +583,7 @@ def merge_chunk_votes(
         term = s.get("term")
         term = (
             normalize_enum_value(field_spec, "ecosystem_service.term", term)
+            or (match_term_relaxed(field_spec, "ecosystem_service.term", term) if term else None)
             if term
             else None
         )
@@ -623,6 +707,21 @@ def main() -> None:
         action="store_true",
         help="v2: inject thorough per-field requirement descriptions into the chunk prompt",
     )
+    parser.add_argument(
+        "--term-enum",
+        action="store_true",
+        help="E1: list the full term enums in the prompt + relaxed term matching",
+    )
+    parser.add_argument(
+        "--clean-text",
+        action="store_true",
+        help="E2: strip URLs/DOIs and truncate chunks at the references heading",
+    )
+    parser.add_argument(
+        "--translate-hint",
+        action="store_true",
+        help="E3: instruct English-internal reasoning (quotes/labels stay German)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Offline deterministic mock test")
     parser.add_argument(
         "--no-save",
@@ -644,6 +743,10 @@ def main() -> None:
     majority_learned = fit_majority_model(train_records)
     field_spec = load_field_spec()
     enum_reference = build_enum_reference(field_spec)
+    term_reference = (
+        build_term_reference(field_spec) + "\n" if args.term_enum else ""
+    )
+    system_prompt = CHUNK_SYSTEM_PROMPT + (TRANSLATE_HINT if args.translate_hint else "")
 
     dev_ids = [line.strip() for line in dev_ids_path.read_text().splitlines() if line.strip()]
     if args.limit:
@@ -665,9 +768,17 @@ def main() -> None:
         mode_tag = "dryrun"
     else:
         model_slug = actual_model.replace("/", "_").replace(":", "_")
-        # v2 runs (field guidelines) get their own suffix so checkpoints, artifacts,
-        # and leaderboard entries never mix with the v1 baseline runs.
-        variant = "_fg" if args.field_guidelines else ""
+        # Each active experiment flag gets its own suffix so checkpoints, artifacts,
+        # and leaderboard entries stay cleanly attributable per change.
+        variant = ""
+        if args.field_guidelines:
+            variant += "_fg"
+        if args.term_enum:
+            variant += "_term"
+        if args.clean_text:
+            variant += "_clean"
+        if args.translate_hint:
+            variant += "_trans"
         run_model_id = f"{MODEL_ID}_{args.provider}_{model_slug}{variant}"
         mode_tag = f"api_{args.provider}_{model_slug}{variant}"
 
@@ -703,25 +814,29 @@ def main() -> None:
         # executed sequentially here to respect the shared provider rate limit)
         for ch in chunks:
             total_chunks_processed += 1
+            # E2 --clean-text: the model sees (and quotes from) the cleaned text,
+            # so verification must run against the SAME cleaned text.
+            chunk_text = clean_chunk_text(ch["text"]) if args.clean_text else ch["text"]
             user_prompt = CHUNK_USER_PROMPT_TEMPLATE.format(
                 title=title,
                 section_name=ch["section_name"],
-                chunk_text=ch["text"],
+                chunk_text=chunk_text,
                 enum_reference=enum_reference,
+                term_reference=term_reference,
                 field_guidelines=FIELD_GUIDELINES if args.field_guidelines else "",
             )
 
             if isinstance(client, ChunkMockClient):
-                client.mock_context = {"rec": rec, "chunk": ch}
+                client.mock_context = {"rec": rec, "chunk": {"chunk_id": ch["chunk_id"], "text": chunk_text}}
 
-            raw_out = client.chat(CHUNK_SYSTEM_PROMPT, user_prompt)
+            raw_out = client.chat(system_prompt, user_prompt)
             raw_findings = parse_chunk_findings(raw_out)
 
             # Stage 3: anti-hallucination gate — quotes must be grounded in the chunk
             verified_chunk_findings = []
             for f in raw_findings:
                 quote = str(f.get("quote") or "")
-                if verify_verbatim_quote(quote, ch["text"]):
+                if verify_verbatim_quote(quote, chunk_text):
                     verified_chunk_findings.append(f)
                     total_quotes_verified += 1
                 else:
@@ -780,6 +895,9 @@ def main() -> None:
                 "temperature": args.temperature,
                 "rpm_limit": args.rpm,
                 "field_guidelines": bool(args.field_guidelines),
+                "term_enum": bool(args.term_enum),
+                "clean_text": bool(args.clean_text),
+                "translate_hint": bool(args.translate_hint),
                 "n_papers": len(dev_ids),
                 "chunk_page_groups": [list(g) for g in CHUNK_PAGE_GROUPS],
                 "quote_verification": "exact | anchor30 | fuzzy>=0.75-contiguous",
