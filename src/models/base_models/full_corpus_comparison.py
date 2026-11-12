@@ -326,17 +326,19 @@ def run_crf(splits: dict, shared: dict) -> dict[str, Any]:
             rec = cfg["gold"][zid]
             text, _ = extract_and_cache_paper_text(zid, rec, cfg["pdf_dir"], cfg["cache_dir"], max_pages=2)
             raw_texts[split][zid] = f"{str(rec.get('bibtex_title') or '')}\n{text}"
-    for split, cfg in splits.items():
-        seed_preds = {}
-        for seed in CRF_SEEDS:
-            vec, emission_clf, classes, trans = fit_linear_chain_crf(tr, train_ids, seed=seed)
-            seed_preds[seed] = {
+    # The CRF fit is split-independent: fit once per seed, then predict BOTH splits.
+    seed_preds_by_split: dict[str, dict[int, dict]] = {s: {} for s in splits}
+    for seed in CRF_SEEDS:
+        vec, emission_clf, classes, trans = fit_linear_chain_crf(tr, train_ids, seed=seed)
+        for split, cfg in splits.items():
+            seed_preds_by_split[split][seed] = {
                 zid: predict_single_paper_crf(zid, raw_texts[split][zid], vec, emission_clf, classes, trans, compiled, learned)
                 for zid in cfg["ids"]
             }
-        out["predictions"][split] = seed_preds[CRF_SEEDS[0]]
+    for split, cfg in splits.items():
+        out["predictions"][split] = seed_preds_by_split[split][CRF_SEEDS[0]]
         out["results"][split] = summarize_seeds(
-            {s: evaluate_predictions(cfg["gold"], seed_preds[s], filter_ids=set(cfg["ids"])) for s in CRF_SEEDS},
+            {s: evaluate_predictions(cfg["gold"], seed_preds_by_split[split][s], filter_ids=set(cfg["ids"])) for s in CRF_SEEDS},
             CRF_SEEDS,
         )
     return out
