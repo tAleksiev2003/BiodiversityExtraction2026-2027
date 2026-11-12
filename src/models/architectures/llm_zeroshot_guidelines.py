@@ -42,8 +42,9 @@ EXECUTIVE SUMMARY — Architecture Model 1: Zero-Shot LLM with Annotation Guidel
     verifies parsing, normalization, and evaluation without spending a single API token.
 - Results on Dev Set (100 valid papers):
     * Dry-Run Self-Test  : C1 Macro-F1 = 0.2055 (= Majority Baseline, pipeline verified)
-    * Real API Run       : PENDING — execute with:
-        GEMINI_API_KEY=<key> python3 src/models/architectures/llm_zeroshot_guidelines.py
+    * Real API Run       : PENDING — execute with (local HU bridge, see ~/Code/Tools/llm_bridge):
+        python3 src/models/architectures/llm_zeroshot_guidelines.py --provider hu
+      (requires HU-VPN + llmbridge on; or GEMINI_API_KEY=<key> ... --provider gemini)
       (then update this block with the measured scores)
 ========================================================================================
 """
@@ -108,6 +109,25 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "base_url": "https://openrouter.ai/api/v1",
         "key_env": "OPENROUTER_API_KEY",
         "default_model": "google/gemini-2.5-flash",
+    },
+    # Local HU-Berlin bridge (~/Code/Tools/llm_bridge): gateway on :4000 in front
+    # of LiteLLM, routing to HU's OpenAI-compatible endpoints (VPN-only, no real
+    # key — the gateway swaps in its own master key; any placeholder works).
+    # `pin_sampling=True`: hu-reasoning fixes temperature=0.6/top_p=0.95/top_k=20
+    # with thinking enabled server-side; Qwen3.6 thinking at temperature 0 is
+    # documented to loop, so client temperature/seed are NOT forwarded.
+    "hu": {
+        "base_url": "http://127.0.0.1:4000/v1",
+        "key_env": "LLM_BRIDGE_KEY",
+        "key_default": "not-needed",
+        "default_model": "hu-reasoning",
+        "pin_sampling": True,
+    },
+    # GWDG SAIA (academic cloud; key via KISSKI booking portal).
+    "saia": {
+        "base_url": "https://chat-ai.academiccloud.de/v1",
+        "key_env": "SAIA_API_KEY",
+        "default_model": "mistral-large-4-1t-a52b",
     },
 }
 
@@ -367,7 +387,7 @@ class OpenAICompatClient:
         from openai import OpenAI  # imported lazily so --dry-run needs no key/package
 
         cfg = PROVIDERS[provider]
-        api_key = os.environ.get(cfg["key_env"])
+        api_key = os.environ.get(cfg["key_env"]) or cfg.get("key_default")
         if not api_key:
             raise SystemExit(
                 f"ERROR: environment variable {cfg['key_env']} is not set.\n"
@@ -377,6 +397,7 @@ class OpenAICompatClient:
         self._client = OpenAI(api_key=api_key, base_url=cfg["base_url"])
         self.model = model
         self.temperature = temperature
+        self.pin_sampling = bool(cfg.get("pin_sampling"))
         self._min_interval = 60.0 / rpm if rpm > 0 else 0.0
         self._last_call = 0.0
         # Aggregated token accounting for the run report
@@ -392,14 +413,18 @@ class OpenAICompatClient:
                 time.sleep(self._min_interval - waited)
         self._last_call = time.time()
 
+        # Sampling params are skipped entirely for providers that pin them
+        # server-side (hu-reasoning: fixed thinking-mode sampling; see PROVIDERS).
+        extra: dict[str, Any] = {}
+        if not self.pin_sampling:
+            extra = {"temperature": self.temperature, "seed": SEED}
         response = self._client.chat.completions.create(
             model=self.model,
-            temperature=self.temperature,
-            seed=SEED,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            **extra,
         )
         self.n_calls += 1
         usage = getattr(response, "usage", None)
@@ -615,6 +640,11 @@ def parse_args() -> argparse.Namespace:
         "--dry-run", action="store_true",
         help="Offline pipeline self-test with a deterministic mock (no API key needed)",
     )
+    parser.add_argument(
+        "--no-save", action="store_true",
+        help="Skip save_reproducible_run() (for smoke tests on a few papers; keeps "
+             "artifacts and leaderboard clean — partial runs must not pollute them)",
+    )
     return parser.parse_args()
 
 
@@ -646,12 +676,23 @@ def main() -> None:
         client = OpenAICompatClient(args.provider, model, args.temperature, args.rpm)
 
     # --- checkpointing: resume interrupted runs without re-spending API tokens ---
-    # The mode suffix keeps the offline mock checkpoint from masking a real API run.
-    mode_tag = "dryrun" if args.dry_run else "api"
-    ckpt_file = (
-        REPO_ROOT / "outputs" / CATEGORY / MODEL_ID / f"{MODEL_ID}_checkpoint_{mode_tag}.jsonl"
-    )
-    ckpt_file.parent.mkdir(parents=True, exist_ok=True)
+    # The mode suffix keeps different providers/models from masking each other.
+    model_slug = getattr(client, "model", "mock").replace("/", "_").replace(":", "_")
+    if args.dry_run:
+        mode_tag = "dryrun"
+        run_model_id = MODEL_ID
+    else:
+        # If running default saia mistral, keep backward-compat with existing checkpoint_api.jsonl
+        if args.provider == "saia" and "mistral" in model_slug.lower():
+            mode_tag = "api"
+            run_model_id = MODEL_ID
+        else:
+            mode_tag = f"api_{args.provider}_{model_slug}"
+            run_model_id = f"{MODEL_ID}_{args.provider}_{model_slug}"
+
+    ckpt_dir = REPO_ROOT / "outputs" / CATEGORY / run_model_id
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_file = ckpt_dir / f"{run_model_id}_checkpoint_{mode_tag}.jsonl"
     predictions: dict[str, dict[str, Any]] = {}
     if ckpt_file.exists():
         for line in ckpt_file.read_text().splitlines():
@@ -706,7 +747,9 @@ def main() -> None:
 
     # --- evaluation + reproducible artifacts ---
     metrics = evaluate_predictions(gold, predictions, filter_ids=set(dev_ids))
-    print_report(f"{MODEL_TITLE} {'[DRY-RUN]' if args.dry_run else ''}", metrics)
+    actual_model = getattr(client, "model", "mock")
+    run_title = f"Architecture 1: Zero-Shot LLM + Annotation Guidelines ({actual_model})"
+    print_report(f"{run_title} {'[DRY-RUN]' if args.dry_run else ''}", metrics)
 
     token_stats = {
         "n_calls": getattr(client, "n_calls", 0),
@@ -716,25 +759,28 @@ def main() -> None:
         "n_parse_failures": n_failures,
     }
     runtime = time.time() - start_time
-    save_reproducible_run(
-        model_id=MODEL_ID,
-        model_title=MODEL_TITLE + (" [DRY-RUN MOCK]" if args.dry_run else ""),
-        category=CATEGORY,
-        predictions=predictions,
-        metrics=metrics,
-        runtime_seconds=runtime,
-        seed=SEED,
-        config={
-            "mode": "dry_run_mock" if args.dry_run else "api",
-            "provider": args.provider,
-            "model": getattr(client, "model", "majority-baseline-mock"),
-            "temperature": args.temperature,
-            "max_chars": args.max_chars,
-            "n_papers": len(dev_ids),
-            "prompt_conventions": CONVENTIONS,
-            "token_stats": token_stats,
-        },
-    )
+    if args.no_save:
+        print("\n--no-save set: skipping run artifacts + leaderboard update (smoke test).")
+    else:
+        save_reproducible_run(
+            model_id=run_model_id,
+            model_title=run_title + (" [DRY-RUN MOCK]" if args.dry_run else ""),
+            category=CATEGORY,
+            predictions=predictions,
+            metrics=metrics,
+            runtime_seconds=runtime,
+            seed=SEED,
+            config={
+                "mode": "dry_run_mock" if args.dry_run else "api",
+                "provider": args.provider,
+                "model": actual_model,
+                "temperature": args.temperature,
+                "max_chars": args.max_chars,
+                "n_papers": len(dev_ids),
+                "prompt_conventions": CONVENTIONS,
+                "token_stats": token_stats,
+            },
+        )
     print(
         f"\nDone in {runtime:.1f}s | calls={token_stats['n_calls']} "
         f"| prompt_tokens={token_stats['prompt_tokens']} "
