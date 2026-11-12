@@ -36,10 +36,21 @@ EXECUTIVE SUMMARY — Full-Corpus Base-Model Comparison (Dev-100 vs Train-908)
     This script deliberately does NOT call save_reproducible_run(): train-split
     numbers must not pollute the official per-model leaderboard artifacts.
 
-- Results on Full Corpus (filled after the server run):
-    * PENDING — execute with:
-        python3 src/models/base_models/full_corpus_comparison.py
-      (then update this block with the comparison table)
+- Results on Full Corpus (2026-11-12, lenlenovo, full 908 train + 100 dev):
+    | Model                        | Dev C1 | Train C1 (in-sample!) |
+    |------------------------------|--------|-----------------------|
+    | M1 Majority                  | 0.2055 | 0.2566                |
+    | M2 Random                    | 0.1006 | 0.1038                |
+    | M3 Dictionary Lookup         | 0.3438 | 0.3932                |
+    | M4 TF-IDF + LogReg           | 0.4677 | 0.6498                |
+    | M5 BoW + Complement NB       | 0.4799 | 0.5726                |
+    | M6 TF-IDF + Linear SVM       | 0.4897 | 0.6936                |
+    | M7 k-NN Retrieval            | 0.4793 | 0.7592 (largest gap) |
+    | M8 Linear-Chain CRF          | 0.3315 | 0.3919                |
+    | M9 Approval-Voting Ensemble  | 0.5260 | 0.7386                |
+    Dev columns reproduce the official leaderboard exactly (sanity check passed).
+    Main insight: supervised models gain 10-28 points in-sample; kNN overfits the
+    retrieval corpus most, CRF and dictionary barely benefit — ensemble stays best.
 ========================================================================================
 """
 

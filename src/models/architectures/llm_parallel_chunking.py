@@ -42,15 +42,19 @@ EXECUTIVE SUMMARY — Architecture Model 2: Parallel Chunking & Quote-Verified V
        species-group enum as `german_name`, enforced in Python regardless of what
        the model returned.
 
-- Results on Dev Set (100 valid papers):
-    * Dry-Run Self-Test  : verified=3 / rejected=1 mock findings per paper —
-                          parsing, quote gate, vote merge, and fallbacks verified
-                          offline without spending API tokens.
-    * Real API Run       : PENDING — execute with:
-        python3 src/models/architectures/llm_parallel_chunking.py --provider saia
-        python3 src/models/architectures/llm_parallel_chunking.py --provider hu
-      (SAIA needs SAIA_API_KEY; HU needs the local bridge on :4000 + VPN.)
-      (then update this block with the measured scores)
+- Results on Dev Set (100 valid papers, hu-reasoning via HU bridge):
+    * v1 (baseline chunks)          : C1 Macro-F1 = 0.4318 | C1+C2b = 0.2885 | Micro = 0.3152
+      — ecosystem_type.term F1 = 0.000: free-text term quotes died in strict enum
+        normalization; Architecture 1 (monolithic, full enums in prompt) reaches 0.49
+        there — this single field explains most of B's gap to A1 (0.5754).
+    * v2 (--field-guidelines)       : C1 Macro-F1 = 0.4565 | C1+C2b = 0.3339 | Micro = 0.3566
+      — thorough per-field requirement descriptions halved the false positives on
+        taxa.species_group (144->76), biodiversity_level (49->23), habitat (43->23);
+        validates the guideline-paper insight (detail level of field rules matters).
+    * Experiments E1 (--term-enum), E2 (--clean-text), E3 (--translate-hint), each
+      isolated on top of v2 on HU: started 2026-11-12, results pending — update here
+      and in docs/experiment_log.md when the chain completes.
+    * SAIA/Mistral v1/v2: chained behind the GWDG 504 outage — pending.
 ========================================================================================
 """
 
@@ -151,14 +155,12 @@ Output format:
 #                     pre-translation; Qwen-family models reason better in English)
 # --------------------------------------------------------------------------------------
 
-import re as _re
-
-_URL_DOI_RE = _re.compile(
-    r"(https?://\S+|www\.\S+|doi:\s*\S+|DOI:\s*\S+|[\w.+-]+@[\w-]+\.[\w.]+)", _re.IGNORECASE
+_URL_DOI_RE = re.compile(
+    r"(https?://\S+|www\.\S+|doi:\s*\S+|DOI:\s*\S+|[\w.+-]+@[\w-]+\.[\w.]+)", re.IGNORECASE
 )
-_REFERENCES_HEADING_RE = _re.compile(
+_REFERENCES_HEADING_RE = re.compile(
     r"^\s{0,4}(literatur(?:verzeichnis)?|references|bibliography|schlüsselquellen|quellenverzeichnis)\s*:?\s*$",
-    _re.IGNORECASE,
+    re.IGNORECASE,
 )
 
 
@@ -200,7 +202,7 @@ def match_term_relaxed(
     raw = " ".join(str(value).lower().split())
 
     def canon(s: str) -> str:
-        return _re.sub(r"[\s\-–—()/.,;:]+", "", s.lower())
+        return re.sub(r"[\s\-–—()/.,;:]+", "", s.lower())
 
     canon_value = canon(raw)
     for cand in allowed:
