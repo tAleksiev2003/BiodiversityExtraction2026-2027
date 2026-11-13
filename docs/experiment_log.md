@@ -32,9 +32,29 @@ reaches 0.49 there — that single field explains most of B's gap to A1.
 |---|---|---|---|---|---|
 | v1 | baseline | 0.4318 | 0.2885 | 0.3152 | done |
 | v2 `--field-guidelines` | thorough per-field requirement descriptions (guideline-paper insight) | **0.4565** | **0.3339** | **0.3566** | done — FPs halved: taxa.species_group 144→76, biodiversity_level 49→23, habitat 43→23 |
-| E1 `--term-enum` | full 46+67 term enums in prompt + relaxed term matching (substring/fuzzy 0.60) | pending | — | — | running since 2026-11-12 20:45 UTC |
-| E2 `--clean-text` | strip URLs/DOIs/emails + truncate at references heading | pending | — | — | queued after E1 |
-| E3 `--translate-hint` | English-internal reasoning, German quotes/labels | pending | — | — | queued after E2 |
+| E1 `--term-enum` | full 46+67 term enums in prompt + relaxed term matching (substring/fuzzy 0.60) | **0.5593** | **0.4144** | **0.3923** | done — term F1 0.000→0.46 (24 FP), species_group 0.598; B ≈ A1 (0.5754) |
+| E2 `--clean-text` | strip URLs/DOIs/emails + truncate at references heading | 0.4463 | 0.3321 | 0.3633 | done — neutral/slightly negative vs v2; noise reduction alone doesn't help |
+| E3 `--translate-hint` | English-internal reasoning, German quotes/labels | pending | — | — | running (34/100 at 2026-11-14 00:00 CET) |
+| SAIA Mistral v1 | baseline on mistral-large-4-1t-a52b | 0.4056 | 0.2740 | 0.3112 | done — B also below A1-SAIA (0.5143); term 0.06 |
+| SAIA v2 `--field-guidelines` | on mistral-large | pending | — | — | launched 2026-11-14 00:50 CET after watchdog fix (stale tmux client masked the dead process — patterns now anchored to real python cmdlines) |
+
+**Conclusion so far:** E1 (term enums + relaxed matching) is the single biggest lever
+(+12.8 C1 points over v2, +2.5 over A1-HU would follow if combined — pending E3 and
+combo runs). E2 (text cleaning) alone is not a win.
+
+## New-Architecture runs: English-first Sections Pipeline (`llm_sections_pipeline.py`, other session `a0da88e`)
+
+English-first extraction + quote gate + deterministic EN→DE mapping; both architectures
+(`--architecture parallel|sequential`), `--language en|de`, robust retry client.
+Runs on lenlenovo (GROBID Docker `grobid/grobid:0.9.1-crf` on 127.0.0.1:8070):
+
+| Run | Model | Status |
+|---|---|---|
+| sections parallel/en | hu-reasoning | done (other session, metrics in its artifacts) |
+| sections parallel/de | hu-reasoning | running (62/100 at 00:00 CET) |
+| sections parallel/en | glm-5.3 (SAIA, full model — user chose NOT flash) | running (8/100), self-healing tmux `bio_glm`, GROBID sections |
+| DeepSeek DS1: parallel chunking E1-config (`--field-guidelines --term-enum`) | deepseek-chat | **prepared — chain waits for DEEPSEEK_API_KEY in server `.env`, starts automatically** (`scripts/run_deepseek_chain.sh`) |
+| DeepSeek DS2: sections parallel/en | deepseek-chat | prepared, same chain (runs after DS1) |
 
 Runner: `scripts/run_hu_experiments.sh` (sequential, checkpoint-resumable).
 Each variant gets its own model_id suffix (e.g. `..._fg_term`) → separate
