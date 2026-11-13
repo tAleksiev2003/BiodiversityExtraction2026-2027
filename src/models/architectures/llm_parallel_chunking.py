@@ -65,6 +65,7 @@ from collections import defaultdict
 import difflib
 import json
 from pathlib import Path
+import re
 import sys
 import time
 from typing import Any

@@ -129,6 +129,14 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "key_env": "SAIA_API_KEY",
         "default_model": "mistral-large-4-1t-a52b",
     },
+    # Z.AI (GLM model family; OpenAI-compatible paas/v4 endpoint on api.z.ai).
+    # Default model name per user request ("GLM 5.3") — verify via /v1/models
+    # on first use and adjust here if the exact id differs.
+    "zai": {
+        "base_url": "https://api.z.ai/api/paas/v4",
+        "key_env": "ZAI_API_KEY",
+        "default_model": "glm-5.3",
+    },
 }
 
 # Fixed prompt conventions distilled from the official schema descriptions and our
