@@ -333,6 +333,147 @@ def extract_document_chunks(
 
 
 # --------------------------------------------------------------------------------------
+# Optional text source: GROBID (https://github.com/grobidOrg/grobid) — real academic
+# PDF parsing to TEI XML with section segmentation, replacing the page-range
+# heuristic. The service runs as a Docker container on the lenlenovo (port 8070).
+# --------------------------------------------------------------------------------------
+
+GROBID_URL_DEFAULT = "http://127.0.0.1:8070"
+
+# Section-heading classifiers (applied to <head> text, English + German coverage).
+_SECTION_PATTERNS = {
+    "intro": re.compile(
+        r"(introduction|einleitung|background|hintergrund|problemstellung)", re.IGNORECASE
+    ),
+    "methods": re.compile(
+        r"(method|material|study\s+area|methodik|materialien|untersuchungsgebiet|"
+        r"datenerhebung|datenerfassung|experimental|versuchsaufbau|ansatz|approach|"
+        r"studiengebiet|erhebung)", re.IGNORECASE
+    ),
+    "results": re.compile(
+        r"(result|ergebnis|befunde|findings|beobachtungen|outcome|ergebnisse)", re.IGNORECASE
+    ),
+    "discussion": re.compile(
+        r"(discussion|diskussion|conclusion|schlussfolger|fazit|zusammenfassung|summary|"
+        r"management|implications|limitation|empfehlung|ausblick|outlook)", re.IGNORECASE
+    ),
+}
+
+# Maximum characters per merged logical chunk (GROBID sections are clean but long).
+_GROBID_MAX_CHUNK_CHARS = 30_000
+
+
+def fetch_grobid_tei(zot_id: str, pdf_path: Path, cache_dir: Path, grobid_url: str) -> str | None:
+    """Sends the PDF to the GROBID service once; caches the TEI XML next to the data."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{zot_id}.tei.xml"
+    if cache_file.exists():
+        return cache_file.read_text(encoding="utf-8")
+    try:
+        import urllib.request
+        import uuid
+
+        boundary = uuid.uuid4().hex
+        body = b"".join([
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"input\"; "
+            f"filename=\"{zot_id}.pdf\"\r\nContent-Type: application/pdf\r\n\r\n".encode(),
+            pdf_path.read_bytes(),
+            f"\r\n--{boundary}--\r\n".encode(),
+        ])
+        req = urllib.request.Request(
+            f"{grobid_url}/api/processFulltextDocument",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            tei = resp.read().decode("utf-8", errors="replace")
+        if "<TEI" in tei:
+            cache_file.write_text(tei, encoding="utf-8")
+            return tei
+    except Exception:
+        pass  # service down / parse error -> caller falls back to page chunks
+    return None
+
+
+def extract_grobid_chunks(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+    grobid_url: str,
+) -> list[dict[str, Any]]:
+    """
+    Builds the 4 logical chunks from GROBID's TEI output:
+      C1 = title + abstract + introduction-like sections
+      C2 = methods/study-area sections
+      C3 = results sections
+      C4 = discussion/conclusion/management sections (+ trailing unclassified)
+    Unclassified sections fall into the nearest preceding bucket (or intro if none).
+    Falls back to page-range chunking when GROBID is unreachable or yields nothing.
+    """
+    pdf_path = pdf_dir / f"{zot_id}.pdf"
+    title = str(rec.get("bibtex_title") or "").strip()
+    cache_dir = pdf_dir.parent.parent / "parsed_text" / "grobid_dev"
+    tei = fetch_grobid_tei(zot_id, pdf_path, cache_dir, grobid_url) if pdf_path.exists() else None
+    if tei is None:
+        return extract_document_chunks(zot_id, rec, pdf_dir)
+
+    import xml.etree.ElementTree as ET
+
+    ns = {"tei": "http://www.tei-c.org/ns/1.0"}
+    try:
+        root = ET.fromstring(tei)
+    except ET.ParseError:
+        return extract_document_chunks(zot_id, rec, pdf_dir)
+
+    buckets: dict[str, list[str]] = {"intro": [], "methods": [], "results": [], "discussion": []}
+    # The abstract joins the intro bucket (same role as pages 1-2 in the heuristic).
+    abstract_el = root.find(".//tei:profileDesc/tei:abstract", ns)
+    if abstract_el is not None:
+        abstract_text = " ".join("".join(abstract_el.itertext()).split())
+        if len(abstract_text) > 80:
+            buckets["intro"].append("ABSTRACT: " + abstract_text)
+
+    current = "intro"  # unclassified sections before the first match count as intro
+    for div in root.findall(".//tei:body/tei:div", ns):
+        text = " ".join("".join(div.itertext()).split())
+        if len(text) < 120:
+            continue
+        head_el = div.find("tei:head", ns)
+        head = (head_el.text or "") if head_el is not None else ""
+        matched = None
+        for key in ("methods", "results", "discussion", "intro"):
+            # methods/results/discussion are checked first: an "Ergebnisse und
+            # Diskussion" heading should land in results, not discussion.
+            if _SECTION_PATTERNS[key].search(head):
+                matched = key
+                break
+        if matched:
+            current = matched
+        buckets[current].append(text)
+
+    section_names = {
+        "intro": "Title, Abstract, Introduction (GROBID)",
+        "methods": "Study Area, Material & Methods (GROBID)",
+        "results": "Results, Systematic Species Observations (GROBID)",
+        "discussion": "Discussion, Management / Services (GROBID)",
+    }
+    chunks: list[dict[str, Any]] = []
+    for idx, (key, cid) in enumerate(
+        zip(("intro", "methods", "results", "discussion"), ("C1", "C2", "C3", "C4")), 1
+    ):
+        merged = " ".join(" ".join(buckets[key]).split())
+        if len(merged) > _GROBID_MAX_CHUNK_CHARS:
+            merged = merged[:_GROBID_MAX_CHUNK_CHARS]
+        if len(merged) > 120:
+            chunks.append({"chunk_id": cid, "section_name": section_names[key], "text": merged})
+
+    if not chunks and title:
+        return [{"chunk_id": "C1", "section_name": "Title Only", "text": title}]
+    return chunks or extract_document_chunks(zot_id, rec, pdf_dir)
+
+
+# --------------------------------------------------------------------------------------
 # Stage 3: Python anti-hallucination gate (quote verification)
 # --------------------------------------------------------------------------------------
 
@@ -724,6 +865,17 @@ def main() -> None:
         action="store_true",
         help="E3: instruct English-internal reasoning (quotes/labels stay German)",
     )
+    parser.add_argument(
+        "--text-source",
+        choices=["pages", "grobid"],
+        default="pages",
+        help="Chunking source: page ranges (default) or GROBID section segmentation",
+    )
+    parser.add_argument(
+        "--grobid-url",
+        default=GROBID_URL_DEFAULT,
+        help=f"GROBID service URL (default: {GROBID_URL_DEFAULT})",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Offline deterministic mock test")
     parser.add_argument(
         "--no-save",
@@ -781,6 +933,8 @@ def main() -> None:
             variant += "_clean"
         if args.translate_hint:
             variant += "_trans"
+        if args.text_source == "grobid":
+            variant += "_grobid"
         run_model_id = f"{MODEL_ID}_{args.provider}_{model_slug}{variant}"
         mode_tag = f"api_{args.provider}_{model_slug}{variant}"
 
@@ -808,7 +962,10 @@ def main() -> None:
 
         rec = gold[zot_id]
         title = str(rec.get("bibtex_title") or "")
-        chunks = extract_document_chunks(zot_id, rec, pdf_dir)
+        if args.text_source == "grobid":
+            chunks = extract_grobid_chunks(zot_id, rec, pdf_dir, args.grobid_url)
+        else:
+            chunks = extract_document_chunks(zot_id, rec, pdf_dir)
 
         verified_findings_by_chunk: list[list[dict[str, Any]]] = []
 
@@ -900,6 +1057,7 @@ def main() -> None:
                 "term_enum": bool(args.term_enum),
                 "clean_text": bool(args.clean_text),
                 "translate_hint": bool(args.translate_hint),
+                "text_source": args.text_source,
                 "n_papers": len(dev_ids),
                 "chunk_page_groups": [list(g) for g in CHUNK_PAGE_GROUPS],
                 "quote_verification": "exact | anchor30 | fuzzy>=0.75-contiguous",
