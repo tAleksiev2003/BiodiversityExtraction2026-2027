@@ -53,8 +53,8 @@ Runs on lenlenovo (GROBID Docker `grobid/grobid:0.9.1-crf` on 127.0.0.1:8070):
 | sections parallel/en | hu-reasoning | done (other session, metrics in its artifacts) |
 | sections parallel/de | hu-reasoning | running (62/100 at 00:00 CET) |
 | sections parallel/en | glm-5.3 (SAIA, full model — user chose NOT flash) | running (8/100), self-healing tmux `bio_glm`, GROBID sections |
-| DeepSeek DS1: parallel chunking E1-config (`--field-guidelines --term-enum`) | deepseek-chat | **prepared — chain waits for DEEPSEEK_API_KEY in server `.env`, starts automatically** (`scripts/run_deepseek_chain.sh`) |
-| DeepSeek DS2: sections parallel/en | deepseek-chat | prepared, same chain (runs after DS1) |
+| DeepSeek DS1: parallel chunking E1-config (`--field-guidelines --term-enum`) | deepseek-v4.1-flash-1017 via SAIA | **running since 2026-11-14 00:56 CET** (tmux `bio_ds`, self-healing; no extra key — SAIA covers it) |
+| DeepSeek DS2: sections parallel/en | deepseek-v4.1-flash-1017 via SAIA | queued after DS1, same chain |
 
 Runner: `scripts/run_hu_experiments.sh` (sequential, checkpoint-resumable).
 Each variant gets its own model_id suffix (e.g. `..._fg_term`) → separate
