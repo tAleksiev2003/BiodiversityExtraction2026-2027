@@ -65,9 +65,20 @@ cp .env.example .env          # then enter your SAIA key
 Put the course data into `data/raw/`, the schemas into `data/schemas/`, then:
 
 ```bash
+# 1. check the code once (invented data)
 python3 -m pytest                                  # expect: all passed
-python3 src/data.py make-dev-references            # builds the 100-paper dev set
+
+# 2. build the 100-paper dev set once
+python3 src/data.py make-dev-references
+
+# 3. predict
 python3 src/baselines.py --kind most_frequent --split dev --dev-set with_pdf
+
+# 4. score the prediction from step 3
+LATEST=$(ls -td runs/*_baseline_most_frequent_dev_with_pdf | head -1)
+python3 src/evaluation.py score --references data/processed/dev_with_pdf.jsonl \
+    --predictions "$LATEST/predictions.jsonl" --task c1 --categorical-only
+                                                   # expect: C1 score: 0.2055
 ```
 
 More commands: `docs/HOW_TO_RUN.md`.
