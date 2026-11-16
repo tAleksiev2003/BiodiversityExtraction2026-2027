@@ -1,0 +1,23 @@
+# Secrets
+.env
+
+# Course data: copyright-protected, never commit
+data/raw/**
+!data/raw/**/
+!data/raw/**/.gitkeep
+
+# Generated from course data
+data/processed/**
+!data/processed/.gitkeep
+data/labels/*.json
+runs/**
+!runs/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# macOS
+.DS_Store

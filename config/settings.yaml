@@ -1,0 +1,57 @@
+# Everything in this file may be changed. Code reads all settings from here;
+# there are no hard-coded numbers in the code (see SPEC.md, section 10).
+
+paths:
+  pdfs_train: data/raw/pdfs/train
+  pdfs_dev: data/raw/pdfs/dev
+  pdfs_test: data/raw/pdfs/test
+  references_train: data/raw/references/train.jsonl
+  references_dev: data/raw/references/dev.jsonl
+  references_dev_with_pdf: data/processed/dev_with_pdf.jsonl  # written by: python src/data.py make-dev-references
+  schema_core: data/schemas/core_fields.json
+  schema_biodiversity: data/schemas/biodiversity.json
+  term_to_category: data/labels/term_to_category.json
+  variable_vocabulary: data/labels/variable_vocabulary.json
+  prompt_extraction: config/prompts/extraction.txt
+  processed: data/processed
+  runs: runs
+  cache: data/processed/llm_cache
+
+data:
+  dev_subset_size: 100        # develop on a fixed random subset; null = all dev papers
+  dev_subset_seed: 42
+
+baselines:
+  random_seed: 42                           # random baseline (official seed unknown)
+
+models:
+  full_text: deepseek-v4-flash-0731         # pipeline F, 1M context
+  full_text_fallback: glm-5.3-flash         # if the main model is too slow
+  chunked: qwen3-30b-a3b-instruct-2507      # pipelines A and B, 256K context
+
+llm:
+  base_url: https://chat-ai.academiccloud.de/v1
+  api_key_env: SAIA_API_KEY                 # read from .env, never stored elsewhere
+  temperature: 0
+  timeout_seconds: 300
+  max_retries: 3
+  requests_per_minute: 10                   # SAIA free tier
+  requests_per_day: 400                     # SAIA free tier
+
+chunking:
+  max_chunk_tokens: 8000
+  chunk_overlap_tokens: 200                 # only for the fallback without headings
+
+verbatim_check:
+  enabled: true                             # false = ablation without the checker
+  quote_match_threshold: 90                 # 0-100, rapidfuzz partial_ratio
+  min_quote_words: 5
+  max_quote_words: 40
+  min_verified_quotes: 1
+
+prompt:
+  vocabulary_top_n: 50                      # most frequent measured variables shown to the model
+
+evaluation:
+  task: all                                 # all | c1 | c2b
+  categorical_only: true                    # true = skip BERTScore for free text

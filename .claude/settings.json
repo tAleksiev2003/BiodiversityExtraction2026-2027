@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./data/raw/**)",
+      "Read(./data/processed/**)",
+      "Read(./runs/**)",
+      "Bash(cat ./.env)",
+      "Bash(cat ./data/raw/*)",
+      "Bash(head ./data/raw/*)",
+      "Bash(tail ./data/raw/*)",
+      "Bash(ls ./data/raw/*)"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+# Python 3.13. Pinned versions; later milestones add their own packages.
+PyYAML==6.0.3
+jsonschema==4.26.0
+pytest==9.1.1

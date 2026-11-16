@@ -1,0 +1,3 @@
+# Invented experiment file for tests/test_settings.py: overrides one nested value only.
+chunking:
+  max_chunk_tokens: 1234
