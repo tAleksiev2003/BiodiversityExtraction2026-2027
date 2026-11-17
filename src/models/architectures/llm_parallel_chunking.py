@@ -285,6 +285,74 @@ biodiversity_level ~42% of studies have none).
 
 """
 
+# --------------------------------------------------------------------------------------
+# v3 addendum (Gold-Audit): systematic annotator conventions + format discipline.
+# Appended to FIELD_GUIDELINES only when --v3-guidelines is set.
+# --------------------------------------------------------------------------------------
+
+FIELD_GUIDELINES_V3_ADDENDUM: str = """
+# V3 CONVENTIONS (annotator consistency, Gold-Audit 2026-11-12)
+- ecosystem_type AUE CONVENTION: floodplain studies (Auen, Flussauen, Auenwald)
+  map to category "II Biotoptypengruppen der Binnengewässer" with term
+  "Fließende Gewässer", even when the study's biota is forests.
+- taxa LATIN-COLLECTIVE PREFERENCE: for broad groups prefer the Latin collective
+  name as scientific_name (Pisces, Aves, Mammalia, Plantae, Bacteria, Mollusca,
+  Arthropoda, ...) over "-"; use "-" ONLY when the section gives no usable
+  collective designation.
+- FORMAT DISCIPLINE: scientific_name = bare Latin binomial WITHOUT author
+  epitheta (e.g. "Adonis aestivalis", not "Adonis aestivalis L."); write
+  "spp." WITH period (e.g. "Fucus spp."); collapse whitespace; keep combined
+  German names as one string per taxon.
+"""
+
+# ----------------------------------------------------------------------------
+# Prediction-side micro-normalization (exact string matching is brittle:
+# Gold mixes "Fucus spp"/"Fucus spp.", epitheta, and whitespace variants).
+# ----------------------------------------------------------------------------
+
+_EPITHETA_RE = re.compile(r"\s+([A-Z]\.)$")
+
+
+# Latin collective per German species_group enum (Hebel 2, --latin-collective).
+# Gold convention prefers the Latin collective over "-" when a group is shown.
+LATIN_COLLECTIVE: dict[str, str] = {
+    "Amphibien und Reptilien": "Amphibia",
+    "Andere": "Animalia",
+    "Andere Pflanzen": "Plantae",
+    "Andere Wirbellose": "Invertebrata",
+    "Archaeen": "Archaea",
+    "Bakterien": "Bacteria",
+    "Fische": "Pisces",
+    "Flechten": "Lichenes",
+    "Gefäßpflanzen": "Tracheophyta",
+    "Insekten": "Insecta",
+    "Moose": "Bryophyta",
+    "Pilze": "Fungi",
+    "Protisten": "Protista",
+    "Protozoen": "Protozoa",
+    "Säugetiere": "Mammalia",
+    "Vögel": "Aves",
+}
+
+
+def micronormalize_taxon_name(raw: str) -> str:
+    """Normalizes one taxa scientific/german name for exact-match scoring."""
+    if not isinstance(raw, str):
+        return raw  # preserve None/other types untouched
+    s = " ".join(str(raw).split())  # collapse whitespace runs
+    if not s or s == "-":
+        return s
+    # ensure "spp" -> "spp." (Gold is inconsistent; canonical form has the dot)
+    s = re.sub(r"\bspp\.?", "spp.", s)
+    # strip trailing author epitheta pairs (e.g. "L.", "A. P. de Candolle 1805"):
+    # keep the bare binomial (first two tokens); non-binomials pass through.
+    parts = s.split(" ")
+    if len(parts) > 2 and parts[0][:1].isupper() and parts[1][:1].islower():
+        s = f"{parts[0]} {parts[1]}"
+    else:
+        s = _EPITHETA_RE.sub("", s)
+    return s.strip()
+
 
 # --------------------------------------------------------------------------------------
 # Stage 1: Document sectioning / chunking
@@ -590,6 +658,9 @@ def merge_chunk_votes(
     zot_id: str,
     majority_learned: dict[str, dict[str, Any]],
     field_spec: dict[str, dict[str, Any]],
+    v3: bool = False,
+    latin: bool = False,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """
     Merges verified findings across all chunks for one paper by vote aggregation:
@@ -651,8 +722,9 @@ def merge_chunk_votes(
         habitats = [majority_learned["habitat"]["majority_value"]]
 
     # 2. Biodiversity level: top-2 by verified votes (no fallback: sparser field)
+    # Hebel 3 (--strict-votes): require >=2 chunks of evidence (kills 1-vote FPs).
     sorted_bio = sorted(bio_level_votes.items(), key=lambda kv: (-kv[1], kv[0]))
-    bio_levels = [lvl for lvl, _ in sorted_bio[:2]]
+    bio_levels = [lvl for lvl, v in sorted_bio if (v >= 2 if strict else v >= 1)][:2]
 
     # 3. Ecosystem type: verified category-term pairs, deduplicated, capped at 2
     eco_types: list[dict[str, Any]] = []
@@ -688,10 +760,17 @@ def merge_chunk_votes(
             continue
         sci = str(t.get("scientific_name") or "").strip()
         ger = str(t.get("german_name") or "").strip()
+        if v3 and sci and sci != "-":
+            sci = micronormalize_taxon_name(sci)
+        if v3 and ger:
+            ger = micronormalize_taxon_name(ger)
         if bool(t.get("collective_term", False)) or not sci:
             # Broad group only: gold convention is scientific_name "-",
             # German name defaults to the (German) species_group enum value.
             sci = "-"
+            # Hebel 2 (--latin-collective): prefer Latin collective over "-".
+            if latin and sci == "-":
+                sci = LATIN_COLLECTIVE.get(grp, "-")
             ger = ger or grp
         key = (grp, sci, ger)
         if key not in seen_taxa:
@@ -716,8 +795,10 @@ def merge_chunk_votes(
         )
 
     # 5. Ecosystem service: sparse (~78% empty in gold) — verified support ONLY
+    # Hebel 3 (--strict-votes): count pair support across chunks, require >=2.
     eco_services: list[dict[str, Any]] = []
     seen_srv: set[tuple] = set()
+    srv_votes: defaultdict[tuple, int] = defaultdict(int)
     for s in eco_service_candidates:
         cat = normalize_enum_value(
             field_spec, "ecosystem_service.category", s.get("category") or ""
@@ -731,10 +812,11 @@ def merge_chunk_votes(
             if term
             else None
         )
-        key = (cat, term)
-        if key not in seen_srv:
-            seen_srv.add(key)
-            eco_services.append({"category": cat, "term": term})
+        srv_votes[(cat, term)] += 1
+    for (cat, term), v in sorted(srv_votes.items(), key=lambda kv: (-kv[1], kv[0])):
+        if strict and v < 2:
+            continue  # 1-vote service pairs are FPs in >90% of cases
+        eco_services.append({"category": cat, "term": term})
         if len(eco_services) >= 2:
             break
 
@@ -852,6 +934,11 @@ def main() -> None:
         help="v2: inject thorough per-field requirement descriptions into the chunk prompt",
     )
     parser.add_argument(
+        "--v3-guidelines",
+        action="store_true",
+        help="v3: append Gold-Audit conventions (Auen->II, Latin-collective, format) + micronormalize taxa",
+    )
+    parser.add_argument(
         "--term-enum",
         action="store_true",
         help="E1: list the full term enums in the prompt + relaxed term matching",
@@ -865,6 +952,16 @@ def main() -> None:
         "--translate-hint",
         action="store_true",
         help="E3: instruct English-internal reasoning (quotes/labels stay German)",
+    )
+    parser.add_argument(
+        "--latin-collective",
+        action="store_true",
+        help="Hebel 2: map collective taxa to Latin collective instead of '-'",
+    )
+    parser.add_argument(
+        "--strict-votes",
+        action="store_true",
+        help="Hebel 3: biodiversity_level + ecosystem_service require >=2 chunk votes",
     )
     parser.add_argument(
         "--text-source",
@@ -928,8 +1025,14 @@ def main() -> None:
         variant = ""
         if args.field_guidelines:
             variant += "_fg"
+        if args.v3_guidelines:
+            variant += "_v3"
         if args.term_enum:
             variant += "_term"
+        if args.latin_collective:
+            variant += "_latin"
+        if args.strict_votes:
+            variant += "_svote"
         if args.clean_text:
             variant += "_clean"
         if args.translate_hint:
@@ -983,7 +1086,11 @@ def main() -> None:
                 chunk_text=chunk_text,
                 enum_reference=enum_reference,
                 term_reference=term_reference,
-                field_guidelines=FIELD_GUIDELINES if args.field_guidelines else "",
+                field_guidelines=(
+                    (FIELD_GUIDELINES + FIELD_GUIDELINES_V3_ADDENDUM)
+                    if (args.field_guidelines and args.v3_guidelines)
+                    else (FIELD_GUIDELINES if args.field_guidelines else "")
+                ),
             )
 
             if isinstance(client, ChunkMockClient):
@@ -1006,7 +1113,10 @@ def main() -> None:
 
         # Stage 4: merge verified evidence across chunks into one schema-conform record
         paper_pred = merge_chunk_votes(
-            verified_findings_by_chunk, zot_id, majority_learned, field_spec
+            verified_findings_by_chunk, zot_id, majority_learned, field_spec,
+            v3=args.v3_guidelines,
+            latin=args.latin_collective,
+            strict=args.strict_votes,
         )
         predictions[zot_id] = paper_pred
 
@@ -1055,7 +1165,10 @@ def main() -> None:
                 "temperature": args.temperature,
                 "rpm_limit": args.rpm,
                 "field_guidelines": bool(args.field_guidelines),
+                "v3_guidelines": bool(args.v3_guidelines),
                 "term_enum": bool(args.term_enum),
+                "latin_collective": bool(args.latin_collective),
+                "strict_votes": bool(args.strict_votes),
                 "clean_text": bool(args.clean_text),
                 "translate_hint": bool(args.translate_hint),
                 "text_source": args.text_source,
