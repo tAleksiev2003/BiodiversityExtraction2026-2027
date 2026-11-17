@@ -32,3 +32,10 @@ Suggested open-access papers:
 - `tests/many_pages_document.py` builds an invented 120-page Docling document in code
   (lists and captions across pages, empty pages, ...). `tests/test_long_documents.py` uses it
   to check that the speed-ups for long documents give the same text and chunks as before.
+
+## What is here (M2)
+
+- `llm_smoke_prompt.txt`: an invented short study text with a question, sent to SAIA by
+  the team with `python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt`.
+- The LLM client tests (`tests/test_llm_client.py`) never reach the API: they answer every
+  request with an `httpx.MockTransport` and replace `sleep` and the clock, so they never wait.

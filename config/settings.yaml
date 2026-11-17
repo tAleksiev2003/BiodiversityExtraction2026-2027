@@ -29,17 +29,22 @@ models:
   full_text: deepseek-v4-flash-0731         # pipeline F, 1M context
   full_text_fallback: glm-5.3-flash         # if the main model is too slow
   chunked: qwen3-30b-a3b-instruct-2507      # pipelines A and B, 256K context
-  full_text_context_tokens: 1000000         # deepseek-v4-flash: longer documents go to pipeline B
+  full_text_context_tokens: 1000000         # deepseek-v4-flash: longer documents are split into parts (full_text_part_tokens)
   chunked_context_tokens: 256000            # qwen3-30b-a3b
+  full_text_part_tokens: 900000             # pipeline F: max size of one part for documents over the context window
 
 llm:
   base_url: https://chat-ai.academiccloud.de/v1
   api_key_env: SAIA_API_KEY                 # read from .env, never stored elsewhere
   temperature: 0
   timeout_seconds: 300
-  max_retries: 3
-  requests_per_minute: 10                   # SAIA free tier
-  requests_per_day: 400                     # SAIA free tier
+  max_retries: 3                            # retries after the first attempt (429, 5xx, timeouts)
+  retry_initial_wait_seconds: 10            # backoff 10, 20, 40 s: each wait longer than the 10-second window
+  retry_max_wait_seconds: 120               # upper limit for one wait, also for a server Retry-After
+  # SAIA limits from the x-ratelimit-* response headers (M2); the limiter respects all three
+  requests_per_10_seconds: 10
+  requests_per_hour: 400
+  requests_per_day: 800                     # reached: the run stops; rerun the next day continues from the cache
 
 pdf_conversion:
   do_ocr: true                              # needed for scanned PDFs; slow (SPEC.md, section 11, question 4)

@@ -69,8 +69,13 @@ PDF ──► Docling ──► chunks C1 … Cn
    Never truncate silently: log the chunking level and every split per document.
 3. **LLM calls** (prompt: `config/prompts/extraction.txt`, section 6):
    - **F) Full text:** the whole document in one call with `models.full_text`.
-     A document that does not fit into the context window is never truncated silently:
-     it is processed with pipeline B instead, logged, and reported separately.
+     A document that does not fit into the context window (M1: 2 of 100 dev documents
+     exceed 1M tokens) is never truncated silently and keeps the same model: it is split
+     into as few parts as possible, each at most `models.full_text_part_tokens` (start:
+     900,000, leaving room for prompt and answer), with the chunker from M1. Every part
+     is one call; labels are merged as in pipeline B (verified quotes from any part
+     count). These documents are logged and reported separately
+     ('98 documents in one call, 2 in n parts').
    - **A) Sequential** (after Chain of Agents, Zhang et al. 2024): call *i* receives
      chunk *i* plus the current evidence ledger and returns the updated ledger. It may
      add, confirm or remove labels (rules L1–L4 in the prompt). The last ledger is the
@@ -150,13 +155,24 @@ access rules.
 - OpenAI-compatible API of GWDG SAIA (`llm.base_url` in the config).
 - API key from `.env` (variable `SAIA_API_KEY`, loaded with `python-dotenv`); never
   printed, logged or written anywhere else.
-- Rate limits (free tier): 10 requests/min, 400/day, 3,000/month. Therefore:
+- Rate limits (observed in the SAIA response headers, M2): 10 requests per 10 seconds,
+  400 per hour and 800 per day. Therefore:
   - **disk cache** (`paths.cache`): key = hash(model, full prompt, temperature); a cached
     answer is never requested again. This also makes `Ctrl + C` safe: a stopped run
     continues where it ended;
-  - client-side rate limiter and retries with exponential backoff on 429/5xx;
+  - client-side rate limiter (`llm.requests_per_10_seconds`, `llm.requests_per_hour`,
+    `llm.requests_per_day`): before every request it waits until all three sliding
+    windows have room. 10 requests per minute would be 600 per hour, more than allowed;
+  - when the daily limit is reached, the run stops at once with a clear message instead
+    of waiting for hours. The cache keeps all answers, so running the same command the
+    next day continues where it stopped. After every response the server's own counts
+    (`x-ratelimit-remaining-requests-hour`, `-day`) win over the local count: 0 left for
+    the day stops the run, 0 left for the hour waits one hour. So a restart on the same day
+    is safe; if a header is missing, the limiter falls back to counting locally;
+  - retries with exponential backoff on 429/5xx;
   - `--dry-run`: builds all prompts and reports the number of requests without calling the API;
-  - log the number of requests and the remaining quota (`x-ratelimit-remaining-*`).
+  - log the number of requests, the limits the server reports (`x-ratelimit-limit-*`,
+    to confirm the values in the config) and the remaining quota (`x-ratelimit-remaining-*`).
 
 ## 6. Prompt
 
@@ -264,3 +280,11 @@ The team learns from this code, so it must be easy to read and to extend:
 4. **Docling runtime** on very long or scanned documents (OCR is slow); measure in M1.
 5. **Start values** of `quote_match_threshold`, `min_quote_words`, `max_quote_words`,
    `max_chunk_tokens`: tune on a few dev documents.
+6. **Chunk size for pipelines A and B** (decide before M3b). M1 result: 2,168 chunks for
+   100 dev documents with 8,000-token chunks; with the SAIA limit of 800 requests per
+   day (from the response headers in M2) one pipeline B run takes almost 3 days; one
+   document alone has 837 chunks. Proposal: adaptive chunk size
+   `max(max_chunk_tokens, document_tokens / max_chunks_per_document)`, e.g. at most 20
+   chunks per document, so normal papers keep 8,000-token chunks and books stay
+   affordable without dropping text. Report results separately for short and long
+   documents.

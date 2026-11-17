@@ -8,3 +8,7 @@ docling-core==2.107.1
 semchunk==3.2.5
 transformers==5.23.0
 reportlab==5.1.0                 # only for tests/fixtures/make_fixture_pdfs.py
+# M2: LLM client
+openai==2.32.0
+httpx==0.28.1                    # HTTP layer of openai; tests use its MockTransport
+python-dotenv==1.2.4

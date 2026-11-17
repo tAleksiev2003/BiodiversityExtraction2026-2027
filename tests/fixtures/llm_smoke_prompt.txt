@@ -1,0 +1,6 @@
+Read the invented study text below and answer in one short English sentence:
+which group of organisms did the study count, and in which habitat?
+
+Text: In spring 2025 we counted ground beetles (Carabidae) with pitfall traps along
+twelve hedgerows near the fictional village of Musterdorf. Beetle numbers were higher
+next to old hedgerows than next to young ones.

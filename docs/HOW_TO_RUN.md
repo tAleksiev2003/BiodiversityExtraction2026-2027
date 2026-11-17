@@ -56,6 +56,20 @@ It prints the runtime of every document and stores each result as soon as it is 
 the command it printed at the start, e.g.
 `python3 src/document_statistics.py --split dev --resume runs/<timestamp>_m1_statistics_dev`.
 
+## 4. LLM client (M2)
+
+Needs `SAIA_API_KEY` in `.env` (copy `.env.example`). Answers are cached in
+`data/processed/llm_cache/`, so the same prompt is never sent twice.
+
+```bash
+python3 src/llm_client.py list-models                     # models the API offers
+python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt            # 1 request
+python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt            # again: 0 requests (cache)
+python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt --dry-run  # counts, sends nothing
+```
+
+`--model full_text` uses the full-text model instead of the chunk model.
+
 ## Reference numbers (C1 score)
 
 | Baseline | with_pdf (ours) | full (ours) | full (official) |
