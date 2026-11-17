@@ -40,6 +40,10 @@ Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW
 │   ├── labels.py             reads data/schemas/
 │   ├── data.py               reads data/raw/
 │   ├── baselines.py          random / most frequent
+│   ├── pdf_to_text.py        PDF -> Docling document (M1)
+│   ├── page_text.py          fast Markdown text per page (M1)
+│   ├── chunking.py           Docling document -> chunks (M1)
+│   ├── document_statistics.py  page / token / chunk statistics (M1)
 │   ├── evaluation.py         scores predictions
 │   ├── output.py             writes predictions.jsonl + zip
 │   ├── runs.py               creates runs/<run>/

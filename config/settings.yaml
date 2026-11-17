@@ -14,6 +14,7 @@ paths:
   variable_vocabulary: data/labels/variable_vocabulary.json
   prompt_extraction: config/prompts/extraction.txt
   processed: data/processed
+  docling: data/processed/docling           # converted documents (Docling JSON), one folder per split
   runs: runs
   cache: data/processed/llm_cache
 
@@ -28,6 +29,8 @@ models:
   full_text: deepseek-v4-flash-0731         # pipeline F, 1M context
   full_text_fallback: glm-5.3-flash         # if the main model is too slow
   chunked: qwen3-30b-a3b-instruct-2507      # pipelines A and B, 256K context
+  full_text_context_tokens: 1000000         # deepseek-v4-flash: longer documents go to pipeline B
+  chunked_context_tokens: 256000            # qwen3-30b-a3b
 
 llm:
   base_url: https://chat-ai.academiccloud.de/v1
@@ -38,9 +41,19 @@ llm:
   requests_per_minute: 10                   # SAIA free tier
   requests_per_day: 400                     # SAIA free tier
 
+pdf_conversion:
+  do_ocr: true                              # needed for scanned PDFs; slow (SPEC.md, section 11, question 4)
+  do_table_structure: true
+  document_timeout_seconds: null            # null = no limit; Docling stops a document after this time
+
 chunking:
+  tokenizer: Qwen/Qwen3-30B-A3B-Instruct-2507   # HuggingFace tokenizer used to count tokens
   max_chunk_tokens: 8000
   chunk_overlap_tokens: 200                 # only for the fallback without headings
+  min_headings: 1                           # fewer section headings than this = fallback chunking
+
+statistics:
+  long_document_pages: 50                   # M1: report how many documents have more pages
 
 verbatim_check:
   enabled: true                             # false = ablation without the checker

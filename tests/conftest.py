@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
+from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
 
 from data import ID_FIELD
 from labels import FieldSpec, load_field_specs
@@ -77,3 +78,27 @@ def clean_predictions(invented_references: dict[str, dict[str, Any]]) -> list[di
             entry.pop("collective_term", None)
         predictions.append(record)
     return predictions
+
+
+class WordTokenizer(BaseTokenizer):
+    """Counts whitespace-separated words, so chunk sizes in tests are easy to predict.
+
+    The real tokenizer (a HuggingFace download) is only used in test_pdf_to_text.py.
+    """
+
+    max_tokens: int
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
+
+    def get_max_tokens(self) -> int:
+        return self.max_tokens
+
+    def get_tokenizer(self) -> Callable[[str], int]:
+        return self.count_tokens  # semchunk accepts a token-counting function
+
+
+@pytest.fixture
+def word_tokenizer() -> Callable[[int], WordTokenizer]:
+    """word_tokenizer(50) -> a tokenizer with max_tokens = 50."""
+    return lambda max_tokens: WordTokenizer(max_tokens=max_tokens)

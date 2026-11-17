@@ -21,3 +21,14 @@ Suggested open-access papers:
 - `experiment_override.yaml`: an invented experiment file for `tests/test_settings.py`.
 - The invented reference records are **generated** in `tests/conftest.py` from the schema
   enums (e.g. "the first allowed habitat"), so no label string is retyped in the tests.
+
+## What is here (M1)
+
+- `with_headings.pdf`, `without_headings.pdf`: two invented 2-page PDFs (a short "paper"
+  with numbered headings, and plain paragraphs only) for the Docling tests in
+  `tests/test_pdf_to_text.py`. Made by `make_fixture_pdfs.py` (`python3 tests/fixtures/make_fixture_pdfs.py`).
+- The chunking tests (`tests/test_chunking.py`) build tiny Docling documents in code and
+  count tokens as words (`WordTokenizer` in `tests/conftest.py`).
+- `tests/many_pages_document.py` builds an invented 120-page Docling document in code
+  (lists and captions across pages, empty pages, ...). `tests/test_long_documents.py` uses it
+  to check that the speed-ups for long documents give the same text and chunks as before.

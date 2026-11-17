@@ -2,3 +2,9 @@
 PyYAML==6.0.3
 jsonschema==4.26.0
 pytest==9.1.1
+# M1: PDF conversion and chunking
+docling==2.150.1
+docling-core==2.107.1
+semchunk==3.2.5
+transformers==5.23.0
+reportlab==5.1.0                 # only for tests/fixtures/make_fixture_pdfs.py
