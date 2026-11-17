@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "BiodiversityLevelEnum": {
+      "enum": [
+        "Artenvielfalt",
+        "Funktionelle Diversität",
+        "Genetische Diversität",
+        "Habitatdiversität",
+        "Phylogenetische Diversität",
+        "Strukturelle Diversität",
+        "Zusammensetzung der Artengemeinschaft"
+      ],
+      "title": "BiodiversityLevelEnum",
+      "type": "string"
+    },
+    "EcosystemTypeCategoryEnum": {
+      "enum": [
+        "I Biotoptypengruppen der Meere und Küsten",
+        "II Biotoptypengruppen der Binnengewässer",
+        "III Terrestrische und semiterrestrische Biotoptypengruppen des Binnenlandes",
+        "IV Technische Biotoptypengruppen",
+        "V Biotoptypengruppen mit Schwerpunkt in den Alpen",
+        "VI Weitere"
+      ],
+      "title": "EcosystemTypeCategoryEnum",
+      "type": "string"
+    },
+    "EcosystemTypeSimple": {
+      "additionalProperties": false,
+      "description": "Ökosystemtyp mit Kategorie und (wenn möglich) mit Name.\nWenn es im Text um die Ökosystemtyp-Kategorien Meere oder Küsten geht, sind nur die Ökosystemtypen (Namen)\nmöglich: Benthal der Nordsee; Benthal der Ostsee; Fels- und Steilküsten; Küstendünen; Pelagial\nder Nordsee; Pelagial der Ostsee; Saisonales Meereis der Nordsee; Saisonales Meereis der\nOstsee; Salzgrünland, Brackwasserröhrichte und -Hochstaudenfluren des Geolitorals der\nOstseeküste; Salzgrünland der Nordseeküste (Supralitoral); Sände, Sand-, Geröll- und Blockstrände.\nWenn es im Text um die Ökosystemtyp-Kategorien Binnengewässer geht, sind nur die folgenden Ökosystemtypen\n(Namen) möglich: Fließende Gewässer; Grundwasser und Höhlengewässer; Quellen (inklusive Quellabfluss (Krenal));\nStehende Gewässer.\nWenn es im Text um Ökosystemtyp-Kategorien terrestrisches oder semiterrestrisches Binnenland\ngeht, sind nur die folgenden Ökosystemtypen (Namen) möglich: Äcker und Ackerbrachen; Feldgehölze,\nGebüsche, Hecken und Gehölzkulturen; Felsen, Block- und Schutthalden, Geröllfelder, offene Bereiche\nmit sandigem oder bindigem Substrat; Hoch-, Zwischen- und Übergangsmoore; Höhlen (einschließlich Stollen,\nBrunnenschächte etc.); Laub(Misch)Wälder und -Forste (Laubbaumanteil über 50 Prozent);\nNadel(Misch)Wälder und -Forste; Röhrichte (ohne Brackwasserröhrichte); Trockenrasen sowie\nGrünland trockener bis frischer Standorte; Waldfreie Niedermoore und Sümpfe, Grünland nasser\nbis feuchter Standorte; Waldmäntel und Vorwälder, spezielle Waldnutzungsformen; Wald- und\nUfersäume, Staudenfluren; Zwergstrauchheiden; Großseggenriede.\nWenn es im Text um die Ökosystemtyp-Kategorie technische Biotope geht, sind nur die folgenden\nÖkosystemtypen (Namen) möglich: Bauwerke; Kleine, unbefestigte Freiflächen des besiedelten Bereiches;\nVerkehrsanlagen und Plätze; Deponien und Rieselfelder.\nWenn es im Text um die Ökosystemtyp-Kategorie Biotope mit Schwerpunkt in den Alpen geht, sind nur die\nfolgenden Ökosystemtypen (Namen) möglich: Gebirgsrasen (subalpin bis alpin); Gewässer (subalpin bis alpin);\nFirn, permanente Schneefelder und Gletscher; Felsen (subalpin bis nival); Steinschutthalden und\nSchotterflächen (subalpin bis alpin); Schneeböden, Schneetälchen; Moore (subalpin bis alpin);\nStauden- und Lägerfluren (hochmontan bis alpin); Zwergstrauchheiden (subalpin bis alpin);\nGebüsche (hochmontan bis subalpin); Wälder (subalpin).\nPasst keine der genannten Ökosystemtyp-Kategorien (d.h. Ökosystemtyp-Kategorie Weitere), sind immer\ndie folgenden Ökosystemtypen (Namen) möglich: Rohbodenstandorte und Ruderalfluren; Grün- und Freiflächen",
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/EcosystemTypeCategoryEnum",
+          "description": "Kategorie des Ökosystemtyps"
+        },
+        "term": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EcosystemTypeTermEnum"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name des Ökosystemtyps"
+        }
+      },
+      "required": [
+        "category"
+      ],
+      "title": "EcosystemTypeSimple",
+      "type": "object"
+    },
+    "EcosystemTypeTermEnum": {
+      "enum": [
+        "Anthropogene Rohbodenstandorte und Ruderalfluren",
+        "Bauwerke",
+        "Benthal der Nordsee",
+        "Benthal der Ostsee",
+        "Deponien und Rieselfelder",
+        "Feldgehölze, Gebüsche, Hecken und Gehölzkulturen",
+        "Fels- und Steilküsten",
+        "Felsen, Block- und Schutthalden, Geröllfelder, offene Bereiche mit sandigem oder bindigem Substrat",
+        "Felsen der subalpinen bis nivalen Stufe",
+        "Firn, permanente Schneefelder und Gletscher",
+        "Fließende Gewässer",
+        "Gebirgsrasen (subalpine bis alpine Stufe)",
+        "Gebüsche der hochmontanen bis subalpinen Stufe",
+        "Gewässer der subalpinen bis alpinen Stufe",
+        "Großseggenriede",
+        "Grundwasser und Höhlengewässer",
+        "Grün- und Freiflächen",
+        "Hoch-, Zwischen- und Übergangsmoore",
+        "Höhlen (einschließlich Stollen, Brunnenschächte etc.)",
+        "Kleine, unbefestigte Freiflächen des besiedelten Bereiches",
+        "Küstendünen",
+        "Laub(Misch)Wälder und -Forste (Laubbaumanteil über 50 Prozent)",
+        "Moore der subalpinen bis alpinen Stufe",
+        "Nadel(Misch)Wälder und -Forste",
+        "Pelagial der Nordsee",
+        "Pelagial der Ostsee",
+        "Quellen (inklusive Quellabfluss (Krenal))",
+        "Röhrichte (ohne Brackwasserröhrichte)",
+        "Saisonales Meereis der Nordsee",
+        "Saisonales Meereis der Ostsee",
+        "Salzgrünland der Nordseeküste (Supralitoral)",
+        "Salzgrünland, Brackwasserröhrichte und -Hochstaudenfluren des Geolitorals der Ostseeküste",
+        "Schneeböden, Schneetälchen",
+        "Stehende Gewässer",
+        "Steinschutthalden und Schotterflächen der subalpinen bis alpinen Stufe",
+        "Sände, Sand-, Geröll- und Blockstrände",
+        "Stauden- und Lägerfluren der hochmontanen bis alpinen Stufe",
+        "Subalpine Wälder",
+        "Trockenrasen sowie Grünland trockener bis frischer Standorte",
+        "Verkehrsanlagen und Plätze",
+        "Wald- und Ufersäume, Staudenfluren",
+        "Waldfreie Niedermoore und Sümpfe, Grünland nasser bis feuchter Standorte",
+        "Waldmäntel und Vorwälder, spezielle Waldnutzungsformen",
+        "Zwergstrauchheiden",
+        "Zwergstrauchheiden der subalpinen bis alpinen Stufe",
+        "Äcker und Ackerbrachen"
+      ],
+      "title": "EcosystemTypeTermEnum",
+      "type": "string"
+    },
+    "HabitatEnum": {
+      "enum": [
+        "Agrar- und Offenland",
+        "Binnengewässer und Auen",
+        "Boden",
+        "Küsten und Küstengewässer",
+        "Urbane Räume",
+        "Wald"
+      ],
+      "title": "HabitatEnum",
+      "type": "string"
+    },
+    "SpeciesGroupEnum": {
+      "enum": [
+        "Amphibien und Reptilien",
+        "Andere",
+        "Andere Pflanzen",
+        "Andere Wirbellose",
+        "Archaeen",
+        "Bakterien",
+        "Fische",
+        "Flechten",
+        "Gefäßpflanzen",
+        "Insekten",
+        "Moose",
+        "Pilze",
+        "Protisten",
+        "Protozoen",
+        "Säugetiere",
+        "Vögel"
+      ],
+      "title": "SpeciesGroupEnum",
+      "type": "string"
+    },
+    "Taxa": {
+      "additionalProperties": false,
+      "description": "Art mit wissenschaftlichem und deutschem Namen sowie taxonomischer Gruppe.",
+      "properties": {
+        "scientific_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wissenschaftlicher Name der Art",
+          "title": "Scientific Name"
+        },
+        "german_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deutscher Name der Art",
+          "title": "German Name"
+        },
+        "species_group": {
+          "$ref": "#/$defs/SpeciesGroupEnum",
+          "description": "Taxonomische Gruppe der Art"
+        }
+      },
+      "required": [
+        "species_group"
+      ],
+      "title": "Taxa",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Das Schema sammelt Angaben zu den wichtigsten biodiversitätsbezogenen Merkmalen der Studie:\nLebensräume, Ökosystemtypen, Arten bzw. Artengruppen, sowie die untersuchte Biodiversitätsebene.",
+  "properties": {
+    "habitat": {
+      "description": "Um welchen der folgenden Lebensräume oder um welche Kombination der folgenden Lebensräume geht es in dem Text?",
+      "items": {
+        "$ref": "#/$defs/HabitatEnum"
+      },
+      "title": "Habitat",
+      "type": "array"
+    },
+    "taxa": {
+      "description": "Welche Arten bzw. Artengruppen werden in der Studie untersucht? Verwende die kleinste machbare Ebene: Wenn eine Studie nur wenige Arten behandelt, sollten diese auf Artebene mit ihrem wissenschaftlichen und deutschen Namen angegeben werden. Werden jedoch sehr viele Arten behandelt oder eine Artengruppe besprochen, wird die Artengruppe als 'Sammelbegriff' angegeben. Falls die Studie auf englisch ist, übersetze Art- bzw. Artengruppennamen ins Deutsche. Ergänze, wenn nicht angegeben, die wissenschaftlichen Artennamen, und umgekehrt die deutschen Namen, wenn nur die wissenschaftlichen Artennamen verwendet wurden. ",
+      "items": {
+        "$ref": "#/$defs/Taxa"
+      },
+      "title": "Taxa",
+      "type": "array"
+    },
+    "biodiversity_level": {
+      "description": "Auf welche der folgenden Ebenen wird Biodiversität in der Studie gemessen? ",
+      "items": {
+        "$ref": "#/$defs/BiodiversityLevelEnum"
+      },
+      "title": "Biodiversity Level",
+      "type": "array"
+    },
+    "ecosystem_type": {
+      "description": "Welche Ökosystemtypen werden betrachtet?",
+      "items": {
+        "$ref": "#/$defs/EcosystemTypeSimple"
+      },
+      "title": "Ecosystem Type",
+      "type": "array"
+    }
+  },
+  "title": "EcosystemStudyFeaturesCoreFields",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+# ANLP Task C1 + C2b baseline
+# Requires Python >= 3.11 (Python 3.11 or 3.12 recommended).
+# Install from the project root: python -m pip install -r requirements.txt
+
+# Required runtime dependencies (matching pyproject.toml).
+httpx>=0.27,<1
+jsonschema>=4.21,<5
+
+# Optional: uncomment both lines for the project's evaluation extra.
+# These are not needed for extraction or exact-match evaluation.
+# bert-score>=0.3.13,<0.4
+# scipy>=1.11
+
+# GROBID and the LLM server (e.g. Ollama) are separate services,
+# not Python dependencies installed by this file.
