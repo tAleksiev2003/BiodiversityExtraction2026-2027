@@ -2,6 +2,17 @@
 
 Audit across all **100 validated Dev papers** (`dev_100_ids.txt`): **33 flagged** (listed first) and **67 clean** (listed below).
 
+## Key Takeaways: Where the Biggest Problems Are
+
+1. **Missing or inconsistent `taxa.scientific_name` (20 papers — `taxa_missing_sci`):**  
+   The most frequent schema/gold inconsistency: many gold `taxa` entries omit `scientific_name` completely (neither a Latin name nor the expected `"-"` placeholder for collective terms), or mix German/irregular strings (`"Bäume"`, `"Fucus spp"` without a dot).
+2. **Exact-match traps on species names (`taxa_epithet`, `taxa_comma_de`):**  
+   Some gold records include full botanical author epithets & years (e.g. `"Adonis aestivalis L."`, `"Bromus grossus A. P. de Candolle 1805"` in `6792YBL7`) or comma-joined German names in a single string (`"Acker-Hasenohr, Rundblättriges Hasenohr"`). Because evaluation uses exact set matching, clean predictions like `"Adonis aestivalis"` suffer both a False Positive and a False Negative simultaneously.
+3. **"All-Labels" on breadth documents (7 papers — `breadth_doc`):**  
+   Policy strategies, species lists, and textbooks (e.g. `46RX4AEN`, `4YXRYRJC`, `3E8X2AK3`, `2P53UVJA`) are annotated with 5–6 habitats and/or 6–7 biodiversity levels. Standard empirical-focus extractors cannot predict all global categories on policy texts, creating a natural score ceiling (~7–10% of Dev).
+4. **Unwritten annotator conventions & sparse/missing labels (`convention_floodplain`, `missing_label`, `low_ocr_text`):**  
+   Floodplain forest studies (`3LGPK6BL`, `6BKNRKUA`) are systematically mapped to `II / Fließende Gewässer` rather than forest; `7AYVH7FI` (*Blue Carbon*) lacks `ecosystem_service` despite studying carbon sequestration; and 2 PDFs (`2P53UVJA` book OCR, `V2BVMBPF` with 0 extracted chars) have `< 500` extractable characters.
+
 ## Issue Breakdown (Evaluable Summary)
 
 | Issue Tag | Papers |
