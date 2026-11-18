@@ -58,17 +58,36 @@ the command it printed at the start, e.g.
 
 ## 4. LLM client (M2)
 
-Needs `SAIA_API_KEY` in `.env` (copy `.env.example`). Answers are cached in
-`data/processed/llm_cache/`, so the same prompt is never sent twice.
+Needs at least one key in `.env` (copy `.env.example`): `SAIA_API_KEY_1=`,
+`SAIA_API_KEY_2=`, … numbered from 1 without gaps (1 to 4 keys). The old single
+`SAIA_API_KEY=` still works if no numbered key is set. SAIA's limits (400 per hour,
+800 per day) apply per key, so with n keys a run can send up to n × 800 requests a day.
+Answers are cached in `data/processed/llm_cache/`, so the same prompt is never sent
+twice, whichever key answered it.
+
+The client sends each request with the key that has the most requests left for the
+day. A key that reaches its daily limit is skipped; the run stops only when all keys
+are used up ("Daily limit reached on all 2 usable API key(s)…") — run the same command
+the next day to continue. A key the server rejects (HTTP 401/403) is logged as
+"key 2 was rejected…" and not used again in that run: check that key in `.env`.
+The summary at the end lists requests and remaining quota per key ("key 1", "key 2");
+keys themselves are never shown.
 
 ```bash
 python3 src/llm_client.py list-models                     # models the API offers
+python3 src/llm_client.py check-keys                      # 1 request per key: OK / error, limits, quota
 python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt            # 1 request
 python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt            # again: 0 requests (cache)
 python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt --dry-run  # counts, sends nothing
 ```
 
 `--model full_text` uses the full-text model instead of the chunk model.
+
+`check-keys` sends "Answer with OK." to the chunk model once with every key, bypassing
+the cache, and prints per key `OK` or the error (e.g. `HTTP 403`), the limits and the
+remaining quota. Use it after adding a key, or to see how much quota is left. It costs
+one request per key. `list-models` shows the quota as "not reported" because
+`/v1/models` responses carry no `x-ratelimit-*` headers.
 
 ## Reference numbers (C1 score)
 

@@ -153,26 +153,37 @@ access rules.
 ## 5. LLM access
 
 - OpenAI-compatible API of GWDG SAIA (`llm.base_url` in the config).
-- API key from `.env` (variable `SAIA_API_KEY`, loaded with `python-dotenv`); never
-  printed, logged or written anywhere else.
+- API keys from `.env` (loaded with `python-dotenv`): 1 to n keys as `SAIA_API_KEY_1`,
+  `SAIA_API_KEY_2`, … (consecutive numbers); if no numbered key exists, the single
+  `SAIA_API_KEY` is key 1. A key is never printed, logged or written anywhere else; logs,
+  the summary and the run files name only its number ("key 2").
+- **Several keys** (`src/api_key_pool.py`): the limits below apply per key, so every key
+  has its own rate limiter and its own server counts. Each request goes to the key with
+  the most requests left for the day (server count if known, else local count); keys
+  whose hour or day is used up are skipped. A key that reaches its daily limit is left
+  out and the run continues with the others; a key rejected with 401/403 (invalid or
+  blocked) is logged and dropped for the rest of the run. The summary shows requests and
+  remaining quota per key.
 - Rate limits (observed in the SAIA response headers, M2): 10 requests per 10 seconds,
   400 per hour and 800 per day. Therefore:
-  - **disk cache** (`paths.cache`): key = hash(model, full prompt, temperature); a cached
-    answer is never requested again. This also makes `Ctrl + C` safe: a stopped run
+  - **disk cache** (`paths.cache`): key = hash(model, full prompt, temperature), not the
+    API key, so answers are shared across keys; a cached answer is never requested again. This also makes `Ctrl + C` safe: a stopped run
     continues where it ended;
-  - client-side rate limiter (`llm.requests_per_10_seconds`, `llm.requests_per_hour`,
+  - client-side rate limiter per key (`llm.requests_per_10_seconds`, `llm.requests_per_hour`,
     `llm.requests_per_day`): before every request it waits until all three sliding
-    windows have room. 10 requests per minute would be 600 per hour, more than allowed;
-  - when the daily limit is reached, the run stops at once with a clear message instead
-    of waiting for hours. The cache keeps all answers, so running the same command the
+    windows of the chosen key have room. 10 requests per minute would be 600 per hour, more than allowed;
+  - when **all** keys have reached their daily limit, the run stops at once with a clear
+    message (naming how many keys were used) instead of waiting for hours. The cache keeps all answers, so running the same command the
     next day continues where it stopped. After every response the server's own counts
-    (`x-ratelimit-remaining-requests-hour`, `-day`) win over the local count: 0 left for
-    the day stops the run, 0 left for the hour waits one hour. So a restart on the same day
+    (`x-ratelimit-remaining-requests-hour`, `-day`) of that key win over its local count:
+    0 left for the day drops the key until tomorrow, 0 left for the hour skips it for one
+    hour (if every key's hour is used up, the run waits for the first one to free up). So a restart on the same day
     is safe; if a header is missing, the limiter falls back to counting locally;
   - retries with exponential backoff on 429/5xx;
   - `--dry-run`: builds all prompts and reports the number of requests without calling the API;
   - log the number of requests, the limits the server reports (`x-ratelimit-limit-*`,
-    to confirm the values in the config) and the remaining quota (`x-ratelimit-remaining-*`).
+    to confirm the values in the config) and the remaining quota (`x-ratelimit-remaining-*`),
+    per key.
 
 ## 6. Prompt
 

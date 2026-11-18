@@ -35,16 +35,16 @@ models:
 
 llm:
   base_url: https://chat-ai.academiccloud.de/v1
-  api_key_env: SAIA_API_KEY                 # read from .env, never stored elsewhere
+  api_key_env: SAIA_API_KEY                 # .env: SAIA_API_KEY_1, _2, ... (or just SAIA_API_KEY); never stored elsewhere
   temperature: 0
   timeout_seconds: 300
   max_retries: 3                            # retries after the first attempt (429, 5xx, timeouts)
   retry_initial_wait_seconds: 10            # backoff 10, 20, 40 s: each wait longer than the 10-second window
   retry_max_wait_seconds: 120               # upper limit for one wait, also for a server Retry-After
-  # SAIA limits from the x-ratelimit-* response headers (M2); the limiter respects all three
+  # SAIA limits from the x-ratelimit-* response headers (M2), per API key; each key's limiter respects all three
   requests_per_10_seconds: 10
   requests_per_hour: 400
-  requests_per_day: 800                     # reached: the run stops; rerun the next day continues from the cache
+  requests_per_day: 800                     # reached on all keys: the run stops; rerun the next day continues from the cache
 
 pdf_conversion:
   do_ocr: true                              # needed for scanned PDFs; slow (SPEC.md, section 11, question 4)

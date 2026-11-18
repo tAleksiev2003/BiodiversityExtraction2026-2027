@@ -16,6 +16,9 @@ client passes the server's own remaining counts for the hour and the day
 same day stops at once if the server reports 0 left for the day, and waits if it reports
 0 left for the hour. If a response lacks a header, that window falls back to local
 counting. The 10-second window is always counted locally.
+
+SAIA counts these limits per API key, so the client keeps one limiter per key
+(src/api_key_pool.py) and stops only when every key has reached its daily limit.
 """
 import time
 from collections import deque
@@ -101,10 +104,10 @@ class RateLimiter:
         oldest_to_leave = in_window[len(in_window) - window.max_requests]
         return oldest_to_leave + window.seconds - now
 
-    def _day_is_full(self, now: float) -> bool:
+    def _remaining_today(self, now: float) -> int:
         if self._server_remaining_day is not None:
-            return self._server_remaining_day <= 0
-        return len(self._requests_in(self.daily_window, now)) >= self.daily_window.max_requests
+            return self._server_remaining_day
+        return self.daily_window.max_requests - len(self._requests_in(self.daily_window, now))
 
     def _seconds_until_hour_has_room(self, now: float) -> float:
         if self._server_remaining_hour is None:
@@ -115,6 +118,20 @@ class RateLimiter:
         # after the report is safe for both sliding and fixed hour windows.
         return self._server_reported_at + self.hour_window.seconds - now
 
+    # --- read-only queries, used to choose between several API keys (src/api_key_pool.py) ---
+
+    def remaining_today(self) -> int:
+        """Requests left for the day: the server's count if reported, else the local count."""
+        now = self._clock()
+        self._forget_old_requests(now)
+        return self._remaining_today(now)
+
+    def seconds_until_hour_has_room(self) -> float:
+        """0 if the hour window has room, else how long until it has."""
+        now = self._clock()
+        self._forget_old_requests(now)
+        return max(0.0, self._seconds_until_hour_has_room(now))
+
     def wait_for_slot(self) -> float:
         """Block until every window allows one more request, record it, return the seconds waited.
 
@@ -122,7 +139,7 @@ class RateLimiter:
         """
         now = self._clock()
         self._forget_old_requests(now)
-        if self._day_is_full(now):
+        if self._remaining_today(now) <= 0:
             raise DailyLimitReachedError(
                 f"Daily limit of {self.daily_window.max_requests} requests reached. "
                 "All answers so far are in the cache: run the same command again tomorrow "

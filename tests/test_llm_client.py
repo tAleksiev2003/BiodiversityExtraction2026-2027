@@ -1,25 +1,29 @@
-"""Tests for the LLM client, its cache and its rate limiter.
+"""Tests for the LLM client, its cache, its rate limiter and its API key pool.
 
 No test reaches the real API: every request is answered by `FakeApi` through an
 `httpx.MockTransport`. `sleep` and the clock are replaced, so no test really waits.
 """
 import copy
 import json
+import logging
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import httpx
 import openai
 import pytest
 
+from api_key_pool import MissingApiKeyError, NoUsableApiKeyError, load_api_keys
 from llm_cache import ResponseCache, cache_key
 from llm_client import (
+    CHECK_KEYS_PROMPT,
+    KEY_OK,
+    MODELS_ENDPOINT_NOTE,
     SOURCE_API,
     SOURCE_CACHE,
     SOURCE_DRY_RUN,
     LLMClient,
-    MissingApiKeyError,
-    load_api_key,
+    format_key_checks,
     read_prompt_file,
 )
 from rate_limiter import (
@@ -87,9 +91,9 @@ class FakeApi:
                                   headers={"retry-after": "1", **self.headers})
         return httpx.Response(200, json=completion_json(response), headers=self.headers)
 
-    def openai_client(self) -> openai.OpenAI:
+    def openai_client(self, api_key: str = "invented-test-key") -> openai.OpenAI:
         return openai.OpenAI(
-            api_key="invented-test-key",
+            api_key=api_key,
             base_url="https://llm.invalid/v1",
             max_retries=0,
             http_client=httpx.Client(transport=httpx.MockTransport(self.handle)),
@@ -114,7 +118,7 @@ def make_client(llm_settings: dict[str, Any], sleeps: list[float]) -> Callable[.
     def build(api: FakeApi | None = None, **kwargs: Any) -> LLMClient:
         return LLMClient(
             llm_settings,
-            openai_client=api.openai_client() if api is not None else None,
+            openai_clients=[api.openai_client()] if api is not None else None,
             sleep=sleeps.append,
             **kwargs,
         )
@@ -229,13 +233,13 @@ def test_client_stops_at_the_daily_limit_and_keeps_earlier_answers(
 ) -> None:
     llm_settings["llm"]["requests_per_day"] = 1
     api = FakeApi(headers={})  # no server counts: the local daily count decides
-    client = LLMClient(llm_settings, openai_client=api.openai_client(), sleep=sleeps.append)
+    client = LLMClient(llm_settings, openai_clients=[api.openai_client()], sleep=sleeps.append)
     client.complete(INVENTED_MODEL, user_message("chunk 1"))
     with pytest.raises(DailyLimitReachedError):
         client.complete(INVENTED_MODEL, user_message("chunk 2"))
     assert len(api.requests) == 1  # the second request was never sent
 
-    next_day = LLMClient(llm_settings, openai_client=FakeApi().openai_client(), sleep=sleeps.append)
+    next_day = LLMClient(llm_settings, openai_clients=[FakeApi().openai_client()], sleep=sleeps.append)
     assert next_day.complete(INVENTED_MODEL, user_message("chunk 1")).source == SOURCE_CACHE
 
 
@@ -283,7 +287,7 @@ def make_clocked_client(
     llm_settings: dict[str, Any], api: FakeApi, clock: FakeClock
 ) -> LLMClient:
     """A client whose limiter and retries use the fake clock, so waits move time forward."""
-    return LLMClient(llm_settings, openai_client=api.openai_client(),
+    return LLMClient(llm_settings, openai_clients=[api.openai_client()],
                      sleep=clock.sleep, clock=clock)
 
 
@@ -360,7 +364,9 @@ def test_request_body_contains_model_prompt_and_temperature(
 def test_dry_run_sends_nothing_and_needs_no_key(
     make_client: Callable[..., LLMClient], llm_settings: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv(llm_settings["llm"]["api_key_env"], raising=False)
+    base_name = llm_settings["llm"]["api_key_env"]
+    monkeypatch.delenv(base_name, raising=False)
+    monkeypatch.delenv(f"{base_name}_1", raising=False)
     client = make_client(api=None, dry_run=True)  # no OpenAI client: any request would fail
     first = client.complete(INVENTED_MODEL, user_message("chunk 1"))
     client.complete(INVENTED_MODEL, user_message("chunk 2"))
@@ -443,8 +449,8 @@ def test_does_not_retry_client_errors(make_client: Callable[..., LLMClient]) -> 
 def test_remaining_quota_and_limits_are_recorded(make_client: Callable[..., LLMClient]) -> None:
     client = make_client(FakeApi())
     client.complete(INVENTED_MODEL, user_message("text"))
-    assert client.stats.remaining_quota == QUOTA_HEADERS
-    assert client.stats.rate_limits == LIMIT_HEADERS
+    assert client.stats.per_key["key 1"].remaining_quota == QUOTA_HEADERS
+    assert client.stats.per_key["key 1"].rate_limits == LIMIT_HEADERS
     assert "x-ratelimit-limit-requests-day" in client.summary()
 
 
@@ -460,6 +466,7 @@ def test_call_log_has_prompt_answer_and_source(
     assert entries[0]["messages"] == user_message("text")
     assert entries[0]["content"] == INVENTED_ANSWER
     assert entries[0]["rate_limits"] == LIMIT_HEADERS
+    assert [entry["api_key"] for entry in entries] == ["key 1", None]
 
 
 def test_list_models_is_sorted(make_client: Callable[..., LLMClient]) -> None:
@@ -468,20 +475,252 @@ def test_list_models_is_sorted(make_client: Callable[..., LLMClient]) -> None:
     assert client.stats.api_requests == 1
 
 
-# --- API key ---------------------------------------------------------------------------
+# --- loading API keys from .env ----------------------------------------------------------
 
-INVENTED_KEY_VARIABLE = "INVENTED_TEST_ONLY_KEY"
+INVENTED_BASE_NAME = "INVENTED_TEST_ONLY_KEY"
 
 
-def test_api_key_is_loaded_from_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(INVENTED_KEY_VARIABLE, raising=False)
+@pytest.fixture
+def clean_key_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """No invented key variables before the test; load_dotenv sets them, so delete them after."""
+    names = [INVENTED_BASE_NAME] + [f"{INVENTED_BASE_NAME}_{number}" for number in range(1, 6)]
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+    yield
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+
+
+def write_env_file(tmp_path: Path, lines: list[str]) -> Path:
     env_file = tmp_path / ".env"
-    env_file.write_text(f"{INVENTED_KEY_VARIABLE}=invented-secret\n", encoding="utf-8")
-    assert load_api_key(INVENTED_KEY_VARIABLE, env_file) == "invented-secret"
-    monkeypatch.delenv(INVENTED_KEY_VARIABLE)  # load_dotenv set it; do not leak into other tests
+    env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return env_file
 
 
-def test_missing_api_key_names_the_variable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(INVENTED_KEY_VARIABLE, raising=False)
-    with pytest.raises(MissingApiKeyError, match=INVENTED_KEY_VARIABLE):
-        load_api_key(INVENTED_KEY_VARIABLE, tmp_path / "missing.env")
+def test_numbered_keys_are_loaded_in_order(tmp_path: Path, clean_key_environment: None) -> None:
+    env_file = write_env_file(tmp_path, [
+        f"{INVENTED_BASE_NAME}_2=invented-two",
+        f"{INVENTED_BASE_NAME}_1=invented-one",
+        f"{INVENTED_BASE_NAME}=invented-single",  # ignored: numbered keys exist
+    ])
+    assert load_api_keys(INVENTED_BASE_NAME, env_file) == ["invented-one", "invented-two"]
+
+
+def test_single_old_style_key_is_used_as_key_1(tmp_path: Path, clean_key_environment: None) -> None:
+    env_file = write_env_file(tmp_path, [f"{INVENTED_BASE_NAME}=invented-single"])
+    assert load_api_keys(INVENTED_BASE_NAME, env_file) == ["invented-single"]
+
+
+def test_numbering_gap_stops_counting_and_warns_by_name_only(
+    tmp_path: Path, clean_key_environment: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    env_file = write_env_file(tmp_path, [
+        f"{INVENTED_BASE_NAME}_1=invented-one",
+        f"{INVENTED_BASE_NAME}_3=invented-three",
+    ])
+    with caplog.at_level(logging.WARNING):
+        assert load_api_keys(INVENTED_BASE_NAME, env_file) == ["invented-one"]
+    assert f"{INVENTED_BASE_NAME}_3" in caplog.text
+    assert "invented-three" not in caplog.text
+
+
+def test_missing_api_key_names_the_variables(tmp_path: Path, clean_key_environment: None) -> None:
+    with pytest.raises(MissingApiKeyError, match=f"{INVENTED_BASE_NAME}_1"):
+        load_api_keys(INVENTED_BASE_NAME, tmp_path / "missing.env")
+
+
+# --- several API keys ----------------------------------------------------------------------
+
+def quota_headers(remaining_day: int) -> dict[str, str]:
+    """Invented rate limit headers that report `remaining_day` requests left for the day."""
+    return {**QUOTA_HEADERS, **LIMIT_HEADERS,
+            "x-ratelimit-remaining-requests-day": str(remaining_day)}
+
+
+def make_multi_key_client(
+    llm_settings: dict[str, Any], apis: list[FakeApi], clock: FakeClock, **kwargs: Any
+) -> LLMClient:
+    """One fake API per key, so each test can see which key received which request."""
+    return LLMClient(llm_settings, openai_clients=[api.openai_client() for api in apis],
+                     sleep=clock.sleep, clock=clock, **kwargs)
+
+
+def test_requests_go_to_the_key_with_most_requests_left(llm_settings: dict[str, Any]) -> None:
+    key_1 = FakeApi(headers=quota_headers(remaining_day=100))
+    key_2 = FakeApi(headers=quota_headers(remaining_day=500))
+    client = make_multi_key_client(llm_settings, [key_1, key_2], FakeClock())
+    for chunk_number in range(4):
+        client.complete(INVENTED_MODEL, user_message(f"chunk {chunk_number}"))
+    # 1st: both unknown (local count 800 each), tie -> key 1, which reports 100 left.
+    # 2nd: key 2 (local 800). After that key 2 reports 500 > 100, so it keeps winning.
+    assert len(key_1.requests) == 1
+    assert len(key_2.requests) == 3
+    assert client.stats.per_key["key 2"].requests == 3
+
+
+def test_requests_alternate_between_keys_without_server_counts(
+    llm_settings: dict[str, Any]
+) -> None:
+    keys = [FakeApi(headers={}), FakeApi(headers={})]  # local counting only
+    client = make_multi_key_client(llm_settings, keys, FakeClock())
+    for chunk_number in range(4):
+        client.complete(INVENTED_MODEL, user_message(f"chunk {chunk_number}"))
+    assert [len(api.requests) for api in keys] == [2, 2]
+
+
+def test_key_at_its_daily_limit_is_skipped(llm_settings: dict[str, Any]) -> None:
+    key_1 = FakeApi(headers=quota_headers(remaining_day=0))
+    key_2 = FakeApi(headers=quota_headers(remaining_day=500))
+    client = make_multi_key_client(llm_settings, [key_1, key_2], FakeClock())
+    for chunk_number in range(3):
+        client.complete(INVENTED_MODEL, user_message(f"chunk {chunk_number}"))
+    assert len(key_1.requests) == 1  # its answer said 0 left: never used again
+    assert len(key_2.requests) == 2
+
+
+def test_key_with_its_hour_used_up_is_skipped(llm_settings: dict[str, Any]) -> None:
+    clock = FakeClock()
+    key_1 = FakeApi(headers={**quota_headers(remaining_day=700),
+                             "x-ratelimit-remaining-requests-hour": "0"})
+    key_2 = FakeApi(headers=quota_headers(remaining_day=100))
+    client = make_multi_key_client(llm_settings, [key_1, key_2], clock)
+    for chunk_number in range(3):
+        client.complete(INVENTED_MODEL, user_message(f"chunk {chunk_number}"))
+    # key 1 has more left for the day, but its hour is used up: key 2 instead, no waiting.
+    assert [len(key_1.requests), len(key_2.requests)] == [1, 2]
+    assert clock.now < SECONDS_PER_HOUR
+
+
+def test_all_keys_at_their_daily_limit_raise_and_name_the_number_of_keys(
+    llm_settings: dict[str, Any]
+) -> None:
+    keys = [FakeApi(headers=quota_headers(remaining_day=0)) for _ in range(2)]
+    client = make_multi_key_client(llm_settings, keys, FakeClock())
+    client.complete(INVENTED_MODEL, user_message("chunk 1"))
+    client.complete(INVENTED_MODEL, user_message("chunk 2"))
+    with pytest.raises(DailyLimitReachedError, match="all 2 usable API key"):
+        client.complete(INVENTED_MODEL, user_message("chunk 3"))
+    assert [len(api.requests) for api in keys] == [1, 1]  # the third request was never sent
+
+
+def test_rejected_key_is_dropped_and_the_request_goes_to_another_key(
+    llm_settings: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    key_1 = FakeApi([403])
+    key_2 = FakeApi()
+    client = make_multi_key_client(llm_settings, [key_1, key_2], FakeClock())
+    with caplog.at_level(logging.WARNING):
+        first = client.complete(INVENTED_MODEL, user_message("chunk 1"))
+        client.complete(INVENTED_MODEL, user_message("chunk 2"))
+    assert first.content == INVENTED_ANSWER
+    assert len(key_1.requests) == 1  # never used again after the 403
+    assert len(key_2.requests) == 2
+    assert client.stats.retries == 0  # moving to another key is not a retry
+    assert "key 1 was rejected by the server (HTTP 403)" in caplog.text
+    assert "rejected by the server (HTTP 403)" in client.summary()
+
+
+def test_all_keys_rejected_raise_a_clear_error(llm_settings: dict[str, Any]) -> None:
+    keys = [FakeApi([401]), FakeApi([403])]
+    client = make_multi_key_client(llm_settings, keys, FakeClock())
+    with pytest.raises(NoUsableApiKeyError, match="all 2 API key"):
+        client.complete(INVENTED_MODEL, user_message("chunk 1"))
+
+
+def test_cache_is_shared_across_keys_and_needs_no_key(
+    llm_settings: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_run = make_multi_key_client(llm_settings, [FakeApi(), FakeApi()], FakeClock())
+    first_run.complete(INVENTED_MODEL, user_message("chunk 1"))
+
+    base_name = llm_settings["llm"]["api_key_env"]
+    for name in (base_name, f"{base_name}_1"):
+        monkeypatch.delenv(name, raising=False)
+    # No OpenAI clients and no key in the environment: loading a key would fail.
+    cached_run = LLMClient(llm_settings, sleep=FakeClock().sleep)
+    assert cached_run.complete(INVENTED_MODEL, user_message("chunk 1")).source == SOURCE_CACHE
+    assert cached_run.stats.per_key == {}  # the keys were never loaded
+
+
+def test_no_key_string_appears_in_any_output(
+    llm_settings: dict[str, Any], tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    secrets = ["invented-secret-key-one", "invented-secret-key-two"]
+    apis = [FakeApi([403]), FakeApi([429])]
+    call_log_path = tmp_path / "run" / "llm_calls.jsonl"
+    client = LLMClient(
+        llm_settings,
+        openai_clients=[api.openai_client(secret) for api, secret in zip(apis, secrets)],
+        call_log_path=call_log_path,
+        sleep=FakeClock().sleep,
+    )
+    with caplog.at_level(logging.DEBUG):  # also the debug logs of openai and httpx
+        client.complete(INVENTED_MODEL, user_message("chunk 1"))  # 403, 429, then success
+        client.list_models()
+    # The secrets really were sent, so the test would notice if they leaked.
+    assert apis[1].requests[0].headers["authorization"] == f"Bearer {secrets[1]}"
+    outputs = [caplog.text, client.summary(), json.dumps(client.stats.as_dict()),
+               call_log_path.read_text(encoding="utf-8")]
+    for secret in secrets:
+        for output in outputs:
+            assert secret not in output
+
+
+# --- check-keys ----------------------------------------------------------------------------
+
+def test_check_keys_sends_one_request_per_key_and_reports_each(
+    llm_settings: dict[str, Any]
+) -> None:
+    keys = [FakeApi(headers=quota_headers(remaining_day=700)), FakeApi([403]),
+            FakeApi(headers={})]
+    client = make_multi_key_client(llm_settings, keys, FakeClock())
+    checks = client.check_keys(INVENTED_MODEL)
+
+    assert [len(api.requests) for api in keys] == [1, 1, 1]
+    assert json.loads(keys[0].requests[0].content)["messages"] == user_message(CHECK_KEYS_PROMPT)
+    assert [check.label for check in checks] == ["key 1", "key 2", "key 3"]
+    assert [check.status for check in checks] == [KEY_OK, "HTTP 403", KEY_OK]
+    assert checks[0].remaining_quota["x-ratelimit-remaining-requests-day"] == "700"
+    assert checks[0].rate_limits == LIMIT_HEADERS
+    assert checks[2].remaining_quota == {}  # no headers in that response
+    assert "not reported" in format_key_checks(checks)
+
+
+def test_check_keys_bypasses_the_cache(llm_settings: dict[str, Any]) -> None:
+    keys = [FakeApi(), FakeApi()]
+    client = make_multi_key_client(llm_settings, keys, FakeClock())
+    client.complete(INVENTED_MODEL, user_message(CHECK_KEYS_PROMPT))  # now cached
+    client.check_keys(INVENTED_MODEL)
+    client.check_keys(INVENTED_MODEL)
+    assert sum(len(api.requests) for api in keys) == 1 + 2 * 2
+    assert client.stats.cache_hits == 0
+
+
+def test_check_keys_does_not_retry(llm_settings: dict[str, Any]) -> None:
+    key = FakeApi([500])
+    checks = make_multi_key_client(llm_settings, [key], FakeClock()).check_keys(INVENTED_MODEL)
+    assert checks[0].status == "HTTP 500"
+    assert len(key.requests) == 1
+
+
+def test_check_keys_output_never_contains_a_key(
+    llm_settings: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    secrets = ["invented-secret-key-one", "invented-secret-key-two"]
+    apis = [FakeApi(), FakeApi([401])]
+    client = LLMClient(
+        llm_settings,
+        openai_clients=[api.openai_client(secret) for api, secret in zip(apis, secrets)],
+        sleep=FakeClock().sleep,
+    )
+    with caplog.at_level(logging.DEBUG):
+        output = format_key_checks(client.check_keys(INVENTED_MODEL))
+    for secret in secrets:
+        assert secret not in output
+        assert secret not in caplog.text
+    assert "key 2: HTTP 401" in output
+
+
+def test_models_endpoint_note_explains_missing_quota() -> None:
+    assert "/v1/models" in MODELS_ENDPOINT_NOTE
+    assert "not reported" in MODELS_ENDPOINT_NOTE
