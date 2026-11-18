@@ -50,6 +50,7 @@ from src.evaluation.evaluator import (
     print_report,
     save_reproducible_run,
 )
+from src.models.architectures.llm_parallel_chunking import extract_grobid_chunks
 from src.models.architectures.llm_sections_pipeline import (
     RobustOpenAICompatClient,
     extract_semantic_sections,
@@ -193,8 +194,9 @@ def main() -> None:
         client = RobustOpenAICompatClient(args.provider, actual_model, args.temperature, args.rpm)
 
     model_slug = actual_model.replace("/", "_").replace(":", "_")
-    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}"
-    run_title = f"Architecture 3 (RAG-Anchored Sections): {actual_model}"
+    grobid_suffix = "_grobid" if args.grobid_url else ""
+    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{grobid_suffix}"
+    run_title = f"Architecture 3 (RAG-Anchored Sections{' + GROBID' if args.grobid_url else ''}): {actual_model}"
 
     ckpt_dir = REPO_ROOT / "outputs" / CATEGORY / run_model_id
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -217,7 +219,10 @@ def main() -> None:
             continue
 
         rec = gold[zot_id]
-        sections = extract_semantic_sections(zot_id, rec, pdf_dir, grobid_url=args.grobid_url)
+        if args.grobid_url:
+            sections = extract_grobid_chunks(zot_id, rec, pdf_dir, args.grobid_url)
+        else:
+            sections = extract_semantic_sections(zot_id, rec, pdf_dir)
         combined_clean_text = " ".join(s["text"] for s in sections)
         few_shots = retriever.retrieve_top_k(combined_clean_text, k=args.top_k)
 
