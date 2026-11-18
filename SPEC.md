@@ -299,3 +299,24 @@ The team learns from this code, so it must be easy to read and to extend:
    chunks per document, so normal papers keep 8,000-token chunks and books stay
    affordable without dropping text. Report results separately for short and long
    documents.
+
+## 12. Non-functional requirements
+
+Time budgets (measured as wall-clock time and logged in every run):
+- Test phase: 500 PDFs, 7 days, 3 submissions. PDF conversion plus extraction of
+  all 500 documents must finish in under 24 hours.
+  Measured in M1: 100 dev PDFs took 4.4 hours to convert (about 2.6 minutes each),
+  so 500 PDFs take about 22 hours sequentially. Conversion must run in parallel.
+- Dev run (about 100 PDFs, already converted): extraction should finish in under
+  1 hour, so we can run and score at least one experiment per day.
+
+Limits:
+- SAIA API, per key (from the x-ratelimit-limit-* response headers):
+  10 requests per 10 seconds, 400 per hour, 800 per day.
+  Total capacity = these values x number of keys in .env.
+- PDF conversion: each Docling worker needs about 6 GB RAM.
+
+Rules:
+- Every run logs wall-clock time per stage (conversion, extraction, checking),
+  the number of LLM requests and the average time per request.
+- A speed-up must not change the results (tested: parallel = sequential output).

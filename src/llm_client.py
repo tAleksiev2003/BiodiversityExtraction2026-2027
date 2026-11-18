@@ -14,6 +14,13 @@ steps in order:
 6. logging of the number of requests, the limits the server reports
    (x-ratelimit-limit-*) and the remaining quota (x-ratelimit-remaining-*) per key.
 
+One answer can take minutes, so the pipelines call `complete` from several threads at
+once (`max_parallel_requests()` = `llm.max_concurrent_requests_per_key` x number of
+keys). The cache, the key pool and every rate limiter are thread-safe, so the limits of
+each key still hold exactly; the counters and the call log are protected by a lock.
+`request_stop()` (after Ctrl + C) wakes every thread that waits for a rate limit or a
+retry and makes it raise RunStoppedError; requests already sent finish and are cached.
+
 The API keys are read from .env (`<llm.api_key_env>_1`, `_2`, ... or `<llm.api_key_env>`)
 only when the first real request is sent, so a dry run or a fully cached run works
 without a key. A key is never printed, logged or written anywhere; logs only show its
@@ -29,6 +36,7 @@ import argparse
 import json
 import logging
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -85,6 +93,10 @@ MODELS_ENDPOINT_NOTE = (
 KEY_REJECTED_ERRORS = (openai.AuthenticationError, openai.PermissionDeniedError)  # 401, 403
 
 
+class RunStoppedError(RuntimeError):
+    """The run was stopped (Ctrl + C); raised instead of waiting or sending a new request."""
+
+
 def create_openai_client(settings: dict[str, Any], api_key: str) -> openai.OpenAI:
     """OpenAI SDK client pointed at SAIA, one per API key.
 
@@ -129,14 +141,23 @@ class RequestStats:
 
     api_requests: int = 0       # every request sent to the server, retries included
     retries: int = 0
+    request_seconds_total: float = 0.0  # time from sending to the answer, summed over requests
     cache_hits: int = 0
     dry_run_requests: int = 0   # different prompts a real run would still send
     # Per key ("key 1", ...): requests, rejection, and the last x-ratelimit-* headers, i.e.
     # the limits the server really applies, so we can check the values in settings.yaml.
     per_key: dict[str, KeyStats] = field(default_factory=dict)
 
+    def average_request_seconds(self) -> float | None:
+        """Mean time one request took (None before the first request)."""
+        if self.api_requests == 0:
+            return None
+        return self.request_seconds_total / self.api_requests
+
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        result["average_request_seconds"] = self.average_request_seconds()
+        return result
 
 
 def headers_with_prefix(headers: Mapping[str, str], prefix: str) -> dict[str, str]:
@@ -198,12 +219,13 @@ class LLMClient:
         dry_run: bool = False,
         call_log_path: Path | None = None,
         openai_clients: Sequence[openai.OpenAI] | None = None,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """`call_log_path`: JSONL file in the run folder that receives every prompt and
         answer (SPEC.md, section 8). `openai_clients` (one per key), `sleep` and `clock`
         are replaced in tests, so the tests never reach the real API and never really wait.
+        Without `sleep`, waits end early when `request_stop()` is called.
         """
         llm = settings["llm"]
         self.temperature: float = llm["temperature"]
@@ -211,6 +233,7 @@ class LLMClient:
         self.retry_initial_wait_seconds: float = llm["retry_initial_wait_seconds"]
         self.retry_max_wait_seconds: float = llm["retry_max_wait_seconds"]
         self.requests_per_day: int = llm["requests_per_day"]
+        self.max_concurrent_requests_per_key: int = llm["max_concurrent_requests_per_key"]
         self.dry_run = dry_run
         self.call_log_path = call_log_path
         self.cache = ResponseCache(settings["paths"]["cache"])
@@ -218,23 +241,56 @@ class LLMClient:
         self._settings = settings
         self._openai_clients = openai_clients
         self._key_pool: ApiKeyPool | None = None
-        self._sleep = sleep
+        self._stop_requested = threading.Event()
+        self._sleep = sleep if sleep is not None else self._sleep_unless_stopped
         self._clock = clock
         self._dry_run_keys: set[str] = set()
+        # One lock for the counters, the dry-run set, the call log and creating the pool.
+        self._lock = threading.Lock()
 
     @property
     def key_pool(self) -> ApiKeyPool:
         """Created on first use, so a dry run or a fully cached run needs no API key."""
-        if self._key_pool is None:
-            clients = self._openai_clients
-            if clients is None:
-                llm = self._settings["llm"]
-                api_keys = load_api_keys(llm["api_key_env"], ENV_FILE)
-                clients = [create_openai_client(self._settings, api_key) for api_key in api_keys]
-            self._key_pool = ApiKeyPool(clients, self._make_rate_limiter)
-            self.stats.per_key = {slot.label: slot.stats for slot in self._key_pool.slots}
-            logger.info("Using %d API key(s)", len(self._key_pool.slots))
-        return self._key_pool
+        with self._lock:
+            if self._key_pool is None:
+                clients = self._openai_clients
+                if clients is None:
+                    llm = self._settings["llm"]
+                    api_keys = load_api_keys(llm["api_key_env"], ENV_FILE)
+                    clients = [create_openai_client(self._settings, api_key) for api_key in api_keys]
+                self._key_pool = ApiKeyPool(clients, self._make_rate_limiter,
+                                            self.max_concurrent_requests_per_key)
+                self.stats.per_key = {slot.label: slot.stats for slot in self._key_pool.slots}
+                logger.info("Using %d API key(s)", len(self._key_pool.slots))
+            return self._key_pool
+
+    def max_parallel_requests(self) -> int:
+        """How many requests the pipelines may send at the same time.
+
+        `max_concurrent_requests_per_key` for every key. A dry run sends nothing and
+        loads no key, and a run without a key in .env can only use the cache, so both
+        count as one key.
+        """
+        if self.dry_run:
+            return self.max_concurrent_requests_per_key
+        try:
+            key_count = len(self.key_pool.slots)
+        except MissingApiKeyError:
+            key_count = 1  # the first request that is not cached raises the error again
+        return self.max_concurrent_requests_per_key * key_count
+
+    def request_stop(self) -> None:
+        """Stop the run: no new request is sent, and waiting threads wake up and raise RunStoppedError."""
+        self._stop_requested.set()
+
+    def _raise_if_stopped(self) -> None:
+        if self._stop_requested.is_set():
+            raise RunStoppedError("The run was stopped; answers received so far are in the cache.")
+
+    def _sleep_unless_stopped(self, seconds: float) -> None:
+        """Like time.sleep, but ends at once when request_stop() is called."""
+        if self._stop_requested.wait(seconds):
+            self._raise_if_stopped()
 
     def _make_rate_limiter(self) -> RateLimiter:
         """A fresh limiter per key, because SAIA counts the limits per key."""
@@ -247,12 +303,14 @@ class LLMClient:
         cached_content = self.cache.get(key)
         used_slot: ApiKeySlot | None = None
         if cached_content is not None:
-            self.stats.cache_hits += 1
+            with self._lock:
+                self.stats.cache_hits += 1
             result = ChatResult(cached_content, SOURCE_CACHE, key)
         elif self.dry_run:
-            # A set, because a real run would answer a repeated prompt from the cache.
-            self._dry_run_keys.add(key)
-            self.stats.dry_run_requests = len(self._dry_run_keys)
+            with self._lock:
+                # A set, because a real run would answer a repeated prompt from the cache.
+                self._dry_run_keys.add(key)
+                self.stats.dry_run_requests = len(self._dry_run_keys)
             result = ChatResult("", SOURCE_DRY_RUN, key)
         else:
             def send_chat(client: openai.OpenAI) -> Any:
@@ -291,7 +349,8 @@ class LLMClient:
         results = []
         for slot in self.key_pool.slots:
             try:
-                self._send_once(slot, send_check, f"check {slot.label}")
+                ticket = slot.rate_limiter.reserve_slot()
+                self._send_once(slot, ticket, send_check, f"check {slot.label}")
                 status = KEY_OK
             except DailyLimitReachedError:
                 status = "not sent: daily limit reached"
@@ -313,55 +372,82 @@ class LLMClient:
         """
         attempt = 0
         while True:
-            slot = self.key_pool.choose()  # raises when all keys are used up or rejected
+            self._raise_if_stopped()
+            # Chooses a key and reserves a place in its limiter (may wait); raises when
+            # all keys are used up for the day or rejected.
+            slot, ticket = self.key_pool.acquire()
             try:
-                return slot, self._send_once(slot, send, description)
+                self._raise_if_stopped()  # the stop may have come while waiting for a key
+                return slot, self._send_once(slot, ticket, send, description)
             except KEY_REJECTED_ERRORS as error:
                 # Not a retry: this key is gone, the next loop picks another one at once.
                 self.key_pool.reject(slot, describe_error(error))
+                continue
             except (openai.APIStatusError, openai.APIConnectionError) as error:
                 if not is_retryable(error) or attempt >= self.max_retries:
                     raise
                 wait_seconds = self._backoff_seconds(attempt, error)
-                self.stats.retries += 1
+                with self._lock:
+                    self.stats.retries += 1
                 logger.warning(
                     "Request failed with %s (%s), retry %d of %d in %.0f s",
                     slot.label, describe_error(error), attempt + 1, self.max_retries, wait_seconds,
                 )
-                self._sleep(wait_seconds)
-                attempt += 1
+            finally:
+                # Before the backoff wait: a waiting retry does not keep the key busy.
+                self.key_pool.release(slot)
+            self._sleep(wait_seconds)
+            attempt += 1
 
     def _send_once(
-        self, slot: ApiKeySlot, send: Callable[[openai.OpenAI], Any], description: str
+        self, slot: ApiKeySlot, ticket: int, send: Callable[[openai.OpenAI], Any], description: str
     ) -> Any:
-        """One request with one key; records the rate limit headers of every answer."""
-        slot.rate_limiter.wait_for_slot()
-        self.stats.api_requests += 1
-        slot.stats.requests += 1
+        """One request with one key, whose limiter has already recorded it as `ticket`.
+
+        Records the rate limit headers of every answer and the time the request took.
+        """
+        with self._lock:
+            self.stats.api_requests += 1
+            request_number = self.stats.api_requests
+            slot.stats.requests += 1
+        started = time.perf_counter()  # real time, also in tests: it is only reported
         try:
             raw_response = send(slot.openai_client)
         except openai.APIStatusError as error:
-            self._record_quota(slot, error.response.headers)
+            self._record_quota(slot, ticket, error.response.headers, time.perf_counter() - started)
             raise
-        self._record_quota(slot, raw_response.headers)
+        except openai.APIConnectionError:
+            self._add_request_seconds(time.perf_counter() - started)
+            slot.rate_limiter.request_ended_without_answer(ticket)
+            raise
+        self._record_quota(slot, ticket, raw_response.headers, time.perf_counter() - started)
         logger.info(
             "API request %d (%s) with %s, limits: %s, remaining quota: %s",
-            self.stats.api_requests, description, slot.label,
+            request_number, description, slot.label,
             slot.stats.rate_limits or "not reported",
             slot.stats.remaining_quota or "not reported",
         )
         return raw_response
 
-    def _record_quota(self, slot: ApiKeySlot, headers: Mapping[str, str]) -> None:
+    def _add_request_seconds(self, seconds: float) -> None:
+        with self._lock:
+            self.stats.request_seconds_total += seconds
+
+    def _record_quota(
+        self, slot: ApiKeySlot, ticket: int, headers: Mapping[str, str], seconds: float
+    ) -> None:
         remaining = headers_with_prefix(headers, QUOTA_HEADER_PREFIX)
-        if remaining:
-            slot.stats.remaining_quota = remaining
         limits = headers_with_prefix(headers, LIMIT_HEADER_PREFIX)
-        if limits:
-            slot.stats.rate_limits = limits
+        with self._lock:
+            self.stats.request_seconds_total += seconds
+            if remaining:
+                slot.stats.remaining_quota = remaining
+            if limits:
+                slot.stats.rate_limits = limits
         slot.rate_limiter.update_server_remaining(
             parse_remaining(headers, REMAINING_HOUR_HEADER),
             parse_remaining(headers, REMAINING_DAY_HEADER),
+            ticket,
         )
 
     def _backoff_seconds(self, attempt: int, error: Exception) -> float:
@@ -390,9 +476,11 @@ class LLMClient:
             "rate_limits": slot.stats.rate_limits if slot is not None else {},
             "remaining_quota": slot.stats.remaining_quota if slot is not None else {},
         }
-        self.call_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.call_log_path.open("a", encoding="utf-8") as log_file:
-            log_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        line = json.dumps(entry, ensure_ascii=False) + "\n"
+        with self._lock:  # one whole line per call, never two lines mixed
+            self.call_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.call_log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(line)
 
     def summary(self) -> str:
         """Short report of the requests, printed at the end of a run."""
@@ -401,6 +489,9 @@ class LLMClient:
             f"Requests sent to the API: {stats.api_requests} (retries: {stats.retries})",
             f"Answers from the cache:   {stats.cache_hits}",
         ]
+        average_seconds = stats.average_request_seconds()
+        if average_seconds is not None:
+            lines.append(f"Average time per request: {average_seconds:.1f} s")
         if self.dry_run:
             lines.append(f"Dry run: a real run would send {stats.dry_run_requests} request(s)")
             if stats.dry_run_requests > self.requests_per_day:
@@ -498,6 +589,8 @@ def main() -> None:
         sys.exit(f"ERROR: {error}")
     except DailyLimitReachedError as error:
         sys.exit(f"STOPPED: {error}")
+    except KeyboardInterrupt:
+        sys.exit("STOPPED by Ctrl + C. Answers received so far are in the cache.")
 
 
 if __name__ == "__main__":

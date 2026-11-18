@@ -12,3 +12,6 @@ reportlab==5.1.0                 # only for tests/fixtures/make_fixture_pdfs.py
 openai==2.32.0
 httpx==0.28.1                    # HTTP layer of openai; tests use its MockTransport
 python-dotenv==1.2.4
+# M3a: pipeline F and verbatim checker
+rapidfuzz==3.14.6                # verbatim checker, check C4 (partial_ratio)
+pydantic==2.12.4                 # parsing the LLM answers (already installed with docling)

@@ -4,6 +4,7 @@ All documents here are invented. Label values are taken from the schema enums by
 position (e.g. the first habitat), so no label string is typed into the tests.
 """
 import copy
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -102,3 +103,49 @@ class WordTokenizer(BaseTokenizer):
 def word_tokenizer() -> Callable[[int], WordTokenizer]:
     """word_tokenizer(50) -> a tokenizer with max_tokens = 50."""
     return lambda max_tokens: WordTokenizer(max_tokens=max_tokens)
+
+
+INVENTED_VARIABLE = "Erfundene Variable"
+
+
+@pytest.fixture
+def invented_label_files(tmp_path: Path, specs: dict[str, FieldSpec]) -> dict[str, Path]:
+    """Invented stand-ins for the generated files in data/labels/ (derived from course data).
+
+    term_to_category: ecosystem_type terms go round-robin to the categories; every
+    ecosystem_service term goes to the first category, except the last term, which is
+    left out on purpose (a term without an entry, dropped by check C2).
+    """
+    def round_robin(field: str) -> dict[str, str]:
+        categories = specs[f"{field}.category"].allowed_values
+        terms = specs[f"{field}.term"].allowed_values
+        return {term: categories[index % len(categories)] for index, term in enumerate(terms)}
+
+    service_terms = specs["ecosystem_service.term"].allowed_values
+    service_category = specs["ecosystem_service.category"].allowed_values[0]
+    term_to_category = {
+        "ecosystem_type": round_robin("ecosystem_type"),
+        "ecosystem_service": {term: service_category for term in service_terms[:-1]},
+    }
+    paths = {
+        "term_to_category": tmp_path / "labels" / "term_to_category.json",
+        "variable_vocabulary": tmp_path / "labels" / "variable_vocabulary.json",
+    }
+    paths["term_to_category"].parent.mkdir(parents=True, exist_ok=True)
+    paths["term_to_category"].write_text(json.dumps(term_to_category, ensure_ascii=False), encoding="utf-8")
+    paths["variable_vocabulary"].write_text(
+        json.dumps([{"value": INVENTED_VARIABLE, "count": 3}], ensure_ascii=False), encoding="utf-8")
+    return paths
+
+
+@pytest.fixture
+def invented_settings(
+    settings: dict[str, Any], tmp_path: Path, invented_label_files: dict[str, Path]
+) -> dict[str, Any]:
+    """The real settings, but every path that holds data points into a temporary folder."""
+    copied = copy.deepcopy(settings)
+    copied["paths"].update(invented_label_files)
+    copied["paths"]["cache"] = tmp_path / "cache"
+    copied["paths"]["docling"] = tmp_path / "docling"
+    copied["paths"]["runs"] = tmp_path / "runs"
+    return copied

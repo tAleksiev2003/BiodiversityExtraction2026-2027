@@ -4,6 +4,7 @@ These tests are slower (Docling loads its layout models, and the first run downl
 them and the tokenizer from HuggingFace). The PDFs are made by
 tests/fixtures/make_fixture_pdfs.py.
 """
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +13,13 @@ from docling_core.types.doc import DoclingDocument
 
 from chunking import LEVEL_FALLBACK, LEVEL_HEADINGS, ChunkingConfig, chunk_document, load_tokenizer
 from pdf_to_text import (
+    CONVERSION_LOG_NAME,
     ConversionRecord,
     append_log,
     build_converter,
+    WorkerDiedError,
+    convert_documents,
+    convert_in_parallel,
     convert_pdf,
     full_text,
     load_document,
@@ -83,3 +88,45 @@ def test_conversion_log_keeps_latest_attempt(tmp_path):
     assert latest["DOC00001"]["status"] == "success"
     assert latest["DOC00001"]["pages"] == 3
     assert set(latest) == {"DOC00001", "DOC00002"}
+
+
+def test_parallel_conversion_gives_the_same_results_as_one_by_one(settings, tmp_path, capsys):
+    """Two worker processes, one per fixture PDF, against the one-by-one conversion."""
+    document_ids = ["with_headings", "without_headings"]
+    outputs = {}
+    for workers in (1, 2):
+        run_settings = copy.deepcopy(settings)
+        run_settings["paths"]["docling"] = tmp_path / f"workers_{workers}"
+        convert_documents(run_settings, "dev", document_ids, FIXTURES, workers)
+        assert f"with {workers} worker(s)" in capsys.readouterr().out
+        folder = run_settings["paths"]["docling"] / "dev"
+        log = read_conversion_log(folder / CONVERSION_LOG_NAME)
+        outputs[workers] = {
+            document_id: (full_text(load_document(folder / f"{document_id}.json")),
+                          log[document_id]["status"], log[document_id]["pages"])
+            for document_id in document_ids
+        }
+        assert not list(folder.glob("*.tmp"))  # documents are saved atomically
+    assert outputs[1] == outputs[2]
+    assert all(status == "success" for _text, status, _pages in outputs[2].values())
+
+
+def test_converted_documents_are_skipped(settings, tmp_path, capsys):
+    run_settings = copy.deepcopy(settings)
+    run_settings["paths"]["docling"] = tmp_path / "docling"
+    convert_documents(run_settings, "dev", ["with_headings"], FIXTURES, 2)
+    capsys.readouterr()
+    convert_documents(run_settings, "dev", ["with_headings"], FIXTURES, 2)
+    output = capsys.readouterr().out
+    assert "1 already converted" in output
+    assert "Converting 0 documents" in output
+    log_lines = (tmp_path / "docling" / "dev" / CONVERSION_LOG_NAME).read_text().splitlines()
+    assert len(log_lines) == 1  # the second run converted nothing
+
+
+def test_a_dying_worker_raises_instead_of_hanging(tmp_path):
+    """Workers that cannot start (here: settings without `pdf_conversion`) must not hang the run."""
+    broken_settings = {"paths": {"docling": tmp_path / "docling"}}
+    tasks = [(FIXTURES / "with_headings.pdf", tmp_path / "with_headings.json")]
+    with pytest.raises(WorkerDiedError):
+        list(convert_in_parallel(broken_settings, tasks, 2))

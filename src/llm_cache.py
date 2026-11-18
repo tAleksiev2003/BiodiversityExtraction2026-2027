@@ -7,10 +7,16 @@ already answered come from the disk.
 
 Only the answer and a few metadata are stored, not the prompt itself: prompts of the
 full-text pipeline contain whole documents, and the run folder already keeps them.
+
+Several threads use one cache at the same time (parallel requests). Reading needs no
+lock, because a cache file only appears by an atomic rename, complete or not at all.
+Writing is locked, and every writer uses its own temporary file name, so two threads
+never write into the same temporary file.
 """
 import hashlib
 import json
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +42,7 @@ class ResponseCache:
 
     def __init__(self, cache_dir: Path) -> None:
         self.cache_dir = cache_dir
+        self._write_lock = threading.Lock()
 
     def _path(self, key: str) -> Path:
         return self.cache_dir / f"{key}{CACHE_FILE_SUFFIX}"
@@ -62,6 +69,9 @@ class ResponseCache:
             "content": content,
         }
         final_path = self._path(key)
-        temporary_path = final_path.with_name(final_path.name + ".tmp")
-        temporary_path.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
-        os.replace(temporary_path, final_path)
+        # Process and thread id in the name: two writers never share a temporary file.
+        temporary_name = f"{final_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        temporary_path = final_path.with_name(temporary_name)
+        with self._write_lock:
+            temporary_path.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
+            os.replace(temporary_path, final_path)

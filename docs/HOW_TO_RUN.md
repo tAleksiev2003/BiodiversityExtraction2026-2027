@@ -89,6 +89,46 @@ remaining quota. Use it after adding a key, or to see how much quota is left. It
 one request per key. `list-models` shows the quota as "not reported" because
 `/v1/models` responses carry no `x-ratelimit-*` headers.
 
+## 5. Pipeline F: full text (M3a)
+
+Needs the converted dev documents (section 3) and the label files in `data/labels/`.
+
+```bash
+python3 src/run_pipeline.py full_text --split dev --dry-run    # counts requests, sends nothing
+python3 src/run_pipeline.py full_text --split dev --limit 3    # 3 documents
+python3 src/run_pipeline.py full_text --split dev              # all dev documents with a PDF
+python3 src/run_pipeline.py full_text --split dev --experiment config/experiments/no_verbatim_check.yaml
+```
+
+Each run writes `runs/<timestamp>_full_text_dev[_...]/` with `summary.json` (report this
+back), `documents.jsonl`, `verbatim_check_log.jsonl`, `llm_calls.jsonl` (all prompts and
+answers) and `predictions.jsonl` + `predictions.zip`. A dry run or a stopped run writes no
+predictions. Requests run in parallel: `llm.max_concurrent_requests_per_key` per key
+(each key starts with one request until its first answer). When all keys reach their
+daily limit, or after `Ctrl + C`, the run stops cleanly; run the same command again
+(the next day) and the cache answers everything that was already received. A second
+`Ctrl + C` quits at once.
+
+The run without the checker (`no_verbatim_check.yaml`) sends the same prompts, so after
+the normal run it is answered completely from the cache (0 requests).
+
+Score a run:
+
+```bash
+LATEST=$(ls -td runs/*_full_text_dev | head -1)
+python3 src/evaluation.py score --references data/processed/dev_with_pdf.jsonl \
+    --predictions "$LATEST/predictions.jsonl" --task all --categorical-only \
+    --output "$LATEST/scores.json"
+```
+
+## 6. Parallel PDF conversion
+
+`pdf_to_text.py` converts `pdf_conversion.max_workers` documents at the same time (one
+process each, about 6 GB RAM each). `--workers N` overrides the setting, `--output-dir`
+writes into another folder (e.g. to measure the speed-up without touching the real one).
+If a worker process dies (often out of memory), the run stops with a message; converted
+documents are kept, run again with fewer workers.
+
 ## Reference numbers (C1 score)
 
 | Baseline | with_pdf (ours) | full (ours) | full (official) |

@@ -21,6 +21,9 @@ class FieldSpec:
     parent: str
     subfield: str | None
     allowed_values: tuple[str, ...] | None  # None = open text (no fixed list)
+    # A subfield the schema requires in every entry (e.g. taxa.species_group); a label
+    # without it is invalid (verbatim checker, check C1). Top-level fields: False.
+    required: bool = False
 
     @property
     def is_enum(self) -> bool:
@@ -64,9 +67,11 @@ def field_specs_from_schema(schema: dict[str, Any]) -> dict[str, FieldSpec]:
     for parent, property_node in schema["properties"].items():
         item_node = _resolve_ref(property_node["items"], schema)
         if item_node.get("type") == "object":
+            required_subfields = set(item_node.get("required", []))
             for subfield, subfield_node in item_node["properties"].items():
                 name = f"{parent}.{subfield}"
-                specs[name] = FieldSpec(name, parent, subfield, _allowed_values(subfield_node, schema))
+                specs[name] = FieldSpec(name, parent, subfield, _allowed_values(subfield_node, schema),
+                                        required=subfield in required_subfields)
         else:
             specs[parent] = FieldSpec(parent, parent, None, _allowed_values(property_node["items"], schema))
     return specs

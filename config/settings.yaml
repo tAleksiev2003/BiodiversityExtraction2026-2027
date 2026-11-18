@@ -13,6 +13,7 @@ paths:
   term_to_category: data/labels/term_to_category.json
   variable_vocabulary: data/labels/variable_vocabulary.json
   prompt_extraction: config/prompts/extraction.txt
+  prompt_retry_invalid_json: config/prompts/retry_invalid_json.txt   # appended once after an answer that is not valid JSON
   processed: data/processed
   docling: data/processed/docling           # converted documents (Docling JSON), one folder per split
   runs: runs
@@ -37,7 +38,7 @@ llm:
   base_url: https://chat-ai.academiccloud.de/v1
   api_key_env: SAIA_API_KEY                 # .env: SAIA_API_KEY_1, _2, ... (or just SAIA_API_KEY); never stored elsewhere
   temperature: 0
-  timeout_seconds: 300
+  timeout_seconds: 900
   max_retries: 3                            # retries after the first attempt (429, 5xx, timeouts)
   retry_initial_wait_seconds: 10            # backoff 10, 20, 40 s: each wait longer than the 10-second window
   retry_max_wait_seconds: 120               # upper limit for one wait, also for a server Retry-After
@@ -45,11 +46,13 @@ llm:
   requests_per_10_seconds: 10
   requests_per_hour: 400
   requests_per_day: 800                     # reached on all keys: the run stops; rerun the next day continues from the cache
+  max_concurrent_requests_per_key: 4        # requests in flight at the same time per key; total = this x number of keys
 
 pdf_conversion:
   do_ocr: true                              # needed for scanned PDFs; slow (SPEC.md, section 11, question 4)
   do_table_structure: true
   document_timeout_seconds: null            # null = no limit; Docling stops a document after this time
+  max_workers: 2                            # documents converted at the same time (one process each, about 6 GB RAM each); 1 = one after the other
 
 chunking:
   tokenizer: Qwen/Qwen3-30B-A3B-Instruct-2507   # HuggingFace tokenizer used to count tokens

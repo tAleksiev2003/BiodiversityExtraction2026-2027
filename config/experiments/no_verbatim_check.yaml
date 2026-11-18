@@ -1,0 +1,5 @@
+# Ablation (SPEC.md, section 9): the same LLM answers without the verbatim checker.
+# Only check C1 (allowed values) stays, because CodaBench rejects values outside the schema.
+# The prompts are identical, so a run with this file is answered from the cache.
+verbatim_check:
+  enabled: false

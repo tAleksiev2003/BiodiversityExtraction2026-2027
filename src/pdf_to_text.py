@@ -9,14 +9,30 @@ Usage (run by the team, it reads course data):
     python3 src/pdf_to_text.py --split dev               # the dev documents with a PDF
     python3 src/pdf_to_text.py --split dev --limit 3     # quick check on 3 documents
     python3 src/pdf_to_text.py --split test
+    python3 src/pdf_to_text.py --split dev --limit 5 --workers 1 --output-dir data/processed/docling_speedtest_1
 
 Every attempt appends one line to `<split>/conversion_log.jsonl`
 (id, status, pages, seconds, errors), so the runtime per document can be measured
 (SPEC.md, section 11, question 4).
+
+Parallel conversion: one document takes minutes, mostly in Docling's models on one CPU
+core at a time, so `pdf_conversion.max_workers` documents are converted at the same time,
+each in its own process with its own converter (Docling's models are not shared between
+threads; each process needs about 6 GB RAM). Results, skipping converted documents, the
+log and Ctrl + C behave as with one worker: the main process writes the log, and Ctrl + C
+stops all workers. The documents being converted at that moment are not saved (a
+document file is written atomically, so no half-written file is left) and are converted
+again by the next run.
 """
 import argparse
 import json
+import multiprocessing
+import os
+import signal
 import time
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -97,8 +113,12 @@ def convert_pdf(
 
 
 def save_document(document: DoclingDocument, path: Path) -> None:
+    """Write under a temporary name, then rename: a stopped run never leaves a broken file
+    that would be skipped as "already converted"."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    document.save_as_json(path)
+    temporary_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    document.save_as_json(temporary_path)
+    os.replace(temporary_path, path)
 
 
 def load_document(path: Path) -> DoclingDocument:
@@ -146,34 +166,141 @@ def document_ids_for_split(settings: dict[str, Any], split: str) -> list[str]:
     return list_pdf_ids(settings["paths"][f"pdfs_{split}"])
 
 
-def convert_split(settings: dict[str, Any], split: str, limit: int | None) -> None:
-    """Convert all missing documents of one split and log every attempt."""
-    document_ids = document_ids_for_split(settings, split)
-    if limit is not None:
-        document_ids = document_ids[:limit]
-    pdf_dir = settings["paths"][f"pdfs_{split}"]
+# One conversion task: the PDF and where to save its Docling JSON.
+ConversionTask = tuple[Path, Path]
+
+
+def convert_and_save(converter: DocumentConverter, task: ConversionTask) -> ConversionRecord:
+    """Convert one PDF and save the document if usable; the same in both modes."""
+    pdf_path, target_path = task
+    document, record = convert_pdf(converter, pdf_path)
+    if document is not None:
+        save_document(document, target_path)
+    return record
+
+
+def convert_one_by_one(settings: dict[str, Any], tasks: list[ConversionTask]) -> Iterator[ConversionRecord]:
+    """One converter in this process, documents one after the other."""
+    converter = build_converter(settings)
+    for task in tasks:
+        yield convert_and_save(converter, task)
+
+
+# Each worker process builds its converter once and keeps it for all its documents.
+_worker_converter: DocumentConverter | None = None
+
+
+def _start_worker(settings: dict[str, Any]) -> None:
+    """Runs once in every worker process.
+
+    Ctrl + C is ignored in the workers: the terminal sends it to every process, and the
+    main process alone decides to stop them (otherwise every worker prints a traceback).
+    """
+    global _worker_converter
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    _worker_converter = build_converter(settings)
+
+
+def _convert_in_worker(task: ConversionTask) -> ConversionRecord:
+    assert _worker_converter is not None, "worker started without _start_worker"
+    return convert_and_save(_worker_converter, task)
+
+
+class WorkerDiedError(RuntimeError):
+    """A conversion process ended unexpectedly (often: out of memory)."""
+
+
+def convert_in_parallel(
+    settings: dict[str, Any], tasks: list[ConversionTask], workers: int
+) -> Iterator[ConversionRecord]:
+    """`workers` processes; records come back in the order the documents finish.
+
+    ProcessPoolExecutor rather than multiprocessing.Pool: if a worker dies (e.g. out of
+    memory), Pool waits forever, the executor raises BrokenProcessPool. "spawn" starts
+    fresh processes (the default on macOS): forking a process that has already loaded
+    PyTorch can hang on Linux.
+    """
+    executor = ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"),
+                                   initializer=_start_worker, initargs=(settings,))
+    finished = False
+    try:
+        futures = [executor.submit(_convert_in_worker, task) for task in tasks]
+        for future in as_completed(futures):
+            try:
+                yield future.result()
+            except BrokenProcessPool as error:
+                raise WorkerDiedError(
+                    "A conversion process ended unexpectedly (often: out of memory; each worker "
+                    "needs about 6 GB). Documents converted so far are saved; run the command "
+                    "again, with fewer --workers if it happens again."
+                ) from error
+        finished = True
+    finally:
+        if finished:
+            executor.shutdown(wait=True)
+        else:
+            _stop_workers_now(executor)
+
+
+def _stop_workers_now(executor: ProcessPoolExecutor) -> None:
+    """After Ctrl + C or an error: end the workers without waiting for their documents.
+
+    Python 3.13 has no public way to do this (3.14 adds terminate_workers), so the
+    executor's own list of processes is used.
+    """
+    processes = list((executor._processes or {}).values())
+    executor.shutdown(wait=False, cancel_futures=True)
+    for process in processes:
+        process.terminate()
+    for process in processes:
+        process.join()
+
+
+def convert_documents(
+    settings: dict[str, Any], split: str, document_ids: list[str], pdf_dir: Path, workers: int
+) -> None:
+    """Convert the documents that are not converted yet, log every attempt."""
     log_path = converted_dir(settings, split) / CONVERSION_LOG_NAME
     missing_ids = [doc_id for doc_id in document_ids if not converted_path(settings, split, doc_id).exists()]
     print(f"{split}: {len(document_ids)} documents, {len(document_ids) - len(missing_ids)} already converted")
+    tasks = [(pdf_dir / f"{doc_id}.pdf", converted_path(settings, split, doc_id)) for doc_id in missing_ids]
+    workers = max(1, min(workers, len(tasks)))
+    print(f"Converting {len(tasks)} documents with {workers} worker(s)")
 
-    converter = build_converter(settings)
-    for position, document_id in enumerate(missing_ids, start=1):
-        document, record = convert_pdf(converter, pdf_dir / f"{document_id}.pdf")
-        if document is not None:
-            save_document(document, converted_path(settings, split, document_id))
+    started = time.perf_counter()
+    records = convert_one_by_one(settings, tasks) if workers == 1 else convert_in_parallel(settings, tasks, workers)
+    for position, record in enumerate(records, start=1):
         append_log(record, log_path)
-        print(f"[{position}/{len(missing_ids)}] {document_id}: {record.status}, "
-              f"{record.pages} pages, {record.seconds:.1f} s")
+        print(f"[{position}/{len(tasks)}] {record.document_id}: {record.status}, "
+              f"{record.pages} pages, {record.seconds:.1f} s", flush=True)
+    print(f"Wall-clock time: {time.perf_counter() - started:.1f} s for {len(tasks)} documents "
+          f"with {workers} worker(s)")
     print(f"Log: {log_path}")
+
+
+def convert_split(settings: dict[str, Any], split: str, limit: int | None, workers: int) -> None:
+    """Convert all missing documents of one split."""
+    document_ids = document_ids_for_split(settings, split)
+    if limit is not None:
+        document_ids = document_ids[:limit]
+    convert_documents(settings, split, document_ids, settings["paths"][f"pdfs_{split}"], workers)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert PDFs with Docling.")
     parser.add_argument("--split", choices=SPLITS, required=True)
     parser.add_argument("--limit", type=int, default=None, help="convert only the first N documents")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="documents converted at the same time (default: pdf_conversion.max_workers)")
+    parser.add_argument("--output-dir", type=Path, default=None,
+                        help="folder instead of paths.docling, e.g. to measure the speed-up separately")
     parser.add_argument("--experiment", type=Path, default=None)
     args = parser.parse_args()
-    convert_split(load_settings(args.experiment), args.split, args.limit)
+    settings = load_settings(args.experiment)
+    if args.output_dir is not None:
+        settings["paths"]["docling"] = args.output_dir.resolve()
+    workers = args.workers if args.workers is not None else settings["pdf_conversion"]["max_workers"]
+    convert_split(settings, args.split, args.limit, workers)
 
 
 if __name__ == "__main__":

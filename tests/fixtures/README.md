@@ -39,3 +39,15 @@ Suggested open-access papers:
   the team with `python3 src/llm_client.py ask --prompt-file tests/fixtures/llm_smoke_prompt.txt`.
 - The LLM client tests (`tests/test_llm_client.py`) never reach the API: they answer every
   request with an `httpx.MockTransport` and replace `sleep` and the clock, so they never wait.
+
+## What is here (M3a)
+
+- No new files: the pipeline F tests (`tests/test_full_text_pipeline.py`) build three
+  invented Docling documents in code and answer every prompt with invented JSON through
+  an `httpx.MockTransport`. `tests/conftest.py` writes invented stand-ins for
+  `data/labels/term_to_category.json` and `variable_vocabulary.json` into a temporary
+  folder, so no test depends on files derived from course data.
+- `tests/test_parallel_requests.py` uses a fake slow API (real short delays) to show
+  that requests overlap and that the per-key limits still hold.
+- `tests/test_pdf_to_text.py` converts the two fixture PDFs with 1 and 2 worker processes
+  and compares the results.

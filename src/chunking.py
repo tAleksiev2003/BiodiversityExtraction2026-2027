@@ -96,10 +96,15 @@ class _Piece:
     pages: tuple[int, ...]
 
 
-def load_tokenizer(settings: dict[str, Any]) -> BaseTokenizer:
-    """The tokenizer of the chunked model, so chunk sizes match what the model sees."""
+def load_tokenizer(settings: dict[str, Any], max_tokens: int | None = None) -> BaseTokenizer:
+    """The tokenizer of the chunked model, so chunk sizes match what the model sees.
+
+    HybridChunker splits at the tokenizer's `max_tokens`: by default `max_chunk_tokens`;
+    pipeline F passes `models.full_text_part_tokens` to split very long documents into parts.
+    """
     chunking = settings["chunking"]
-    return HuggingFaceTokenizer.from_pretrained(chunking["tokenizer"], max_tokens=chunking["max_chunk_tokens"])
+    limit = chunking["max_chunk_tokens"] if max_tokens is None else max_tokens
+    return HuggingFaceTokenizer.from_pretrained(chunking["tokenizer"], max_tokens=limit)
 
 
 def count_headings(document: DoclingDocument) -> int:
