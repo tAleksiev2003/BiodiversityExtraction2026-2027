@@ -1,6 +1,6 @@
-# Dev-100 Gold Label & PDF Issues (Filtered Audit)
+# Dev-100 Gold Label & PDF Quality Audit
 
-Out of **100 validated Dev papers** (`dev_100_ids.txt`), **67** show no anomalies and **33** exhibit gold-label, formatting, or PDF-text issues listed below.
+Audit across all **100 validated Dev papers** (`dev_100_ids.txt`): **33 flagged** (listed first) and **67 clean** (listed below).
 
 ## Issue Breakdown (Evaluable Summary)
 
@@ -17,7 +17,7 @@ Out of **100 validated Dev papers** (`dev_100_ids.txt`), **67** show no anomalie
 | `taxa_epithet` | 1 |
 | `missing_label` | 1 |
 
-## Flagged Papers Only (33 / 100)
+## Flagged Papers (33 / 100)
 
 | ID | Issue Tag(s) | Title | Counts | Details |
 | :--- | :--- | :--- | :--- | :--- |
@@ -54,3 +54,75 @@ Out of **100 validated Dev papers** (`dev_100_ids.txt`), **67** show no anomalie
 | `PW2PNF55` | `taxa_missing_sci` | No increase in marine microplastic concentrat... | `H:1 L:0 E:1 T:3 S:0` | Missing scientific_name |
 | `SVXF36H4` | `taxa_missing_sci` | Langjährige Bestandsentwicklung häufiger Brut... | `H:1 L:1 E:0 T:1 S:0` | Missing scientific_name |
 | `V2BVMBPF` | `low_ocr_text` | Zum Rückgang von Naß- und Feuchtbiotopen im E... | `H:1 L:2 E:1 T:1 S:0` | PDF text < 500 chars (0) |
+
+## Clean Papers (67 / 100)
+
+| ID | Title | Counts |
+| :--- | :--- | :--- |
+| `25RIYD2C` | Grünes Band Deutschland: Chronik | `H:1 L:0 E:0 T:0 S:0` |
+| `29Q84X7V` | What we can learn from the german implementat... | `H:1 L:0 E:0 T:0 S:0` |
+| `2E9XWUUE` | Neobiota der deutschen Nord- und Ostseeküste:... | `H:1 L:0 E:0 T:5 S:0` |
+| `2EUNPHDZ` | Analysis and assessment of cumulative effects... | `H:1 L:0 E:0 T:2 S:0` |
+| `2RGQT8TU` | Safeguarding food security and reinforcing th... | `H:1 L:0 E:0 T:0 S:0` |
+| `33MV2F7X` | Vorsorgender Bodenschutz in Deutschland | `H:1 L:0 E:0 T:0 S:0` |
+| `38EBGVBF` | Art und Ausmaß der Inanspruchnahme landwirtsc... | `H:1 L:0 E:1 T:0 S:0` |
+| `3TWLQG7F` | Establishment of blue mussel beds to enhance ... | `H:1 L:1 E:1 T:11 S:0` |
+| `3WEEGFGW` | GAP-Strategieplan für die Bundesrepublik Deut... | `H:1 L:0 E:0 T:0 S:0` |
+| `42ELXZ2H` | Vom Kreislauf zum Durchfluss: Österreichs Agr... | `H:1 L:0 E:0 T:0 S:0` |
+| `42STMMQA` | Greening: a more complex income support schem... | `H:1 L:0 E:0 T:0 S:0` |
+| `49Z7RPDP` | Vielfalt und Leistungen nutzen - Regenwürmer ... | `H:1 L:0 E:1 T:1 S:1` |
+| `4BAX6GKK` | Biodiversity on farmland: CAP contribution ha... | `H:1 L:1 E:0 T:0 S:0` |
+| `4FCS62W5` | Elevated CO2 stimulates marsh elevation gain,... | `H:1 L:0 E:0 T:3 S:0` |
+| `4ZGN9AHA` | Das Ende der Agrarmodernisierung. Die Folgen ... | `H:1 L:0 E:0 T:0 S:0` |
+| `57CBE476` | Studie zu Insekten in Gewässerrandstreifen | `H:1 L:2 E:1 T:1 S:0` |
+| `57ZZ3GDF` | Investigations of the Potential Influence of ... | `H:1 L:0 E:2 T:1 S:0` |
+| `5CZNRP7X` | Plastic ingestion by pelagic and demersal fis... | `H:1 L:0 E:2 T:5 S:0` |
+| `5I8A3W7U` | Flurbereinigung- Best-Practice-Beispiele | `H:1 L:0 E:0 T:0 S:0` |
+| `5SIYLM9W` | Die Wildbienen Deutschlands | `H:1 L:0 E:0 T:1 S:0` |
+| `5TMUACTH` | Globale Landflächen und Biomasse - nachhaltig... | `H:1 L:0 E:0 T:0 S:0` |
+| `5XHDHCIQ` | Chapter 8: Environmental and Health Effects o... | `H:1 L:0 E:0 T:0 S:0` |
+| `6332SBW4` | Aktionsprogramm Quellen in Bayern Teil 2: Que... | `H:1 L:1 E:1 T:0 S:0` |
+| `64C65W5I` | Preliminary study of oxidative stress biomark... | `H:1 L:0 E:1 T:1 S:0` |
+| `6D23L7B5` | Kunststoffe in der Umwelt: Emissionen in land... | `H:2 L:0 E:0 T:0 S:0` |
+| `6JGB9KZ2` | Bio-Lebensmittel: Marktentwicklung und freiwi... | `H:1 L:0 E:0 T:0 S:0` |
+| `6RLMM8BQ` | Losers, winners, and opportunists: How grassl... | `H:1 L:1 E:0 T:1 S:0` |
+| `7EUNQX3Z` | Research on Dutch Elm Disease in Europe | `H:1 L:0 E:0 T:1 S:0` |
+| `7T8NZA5Q` | Environmental Suitability of Vibrio Infection... | `H:1 L:0 E:1 T:4 S:0` |
+| `84P9CN4J` | Ausgestaltung der Ökoregelungen in Deutschlan... | `H:1 L:0 E:0 T:0 S:0` |
+| `84QQ9F5S` | Natural Contaminants | `H:2 L:0 E:0 T:1 S:0` |
+| `885FDL5Z` | State of knowledge of soil biodiversity – Sta... | `H:2 L:2 E:0 T:0 S:0` |
+| `8GEYSUXR` | The marine macroalgae of Helgoland (North Sea... | `H:1 L:1 E:1 T:4 S:0` |
+| `8HFL2MPL` | "Gute Küste Niedersachsen": Reallabore für ei... | `H:1 L:0 E:1 T:0 S:0` |
+| `8PFJ2KHU` | Global Epidemiology, Ecology and Control of S... | `H:1 L:0 E:0 T:3 S:0` |
+| `8Q86MQJE` | Thünen-Baseline 2020 - 2030: Agrarökonomische... | `H:1 L:0 E:0 T:0 S:0` |
+| `8QKB2BJE` | Strategische Lösungsansätze und Best-Practice... | `H:2 L:1 E:0 T:0 S:0` |
+| `8ZESW42A` | Vogelparadies Wattenmeer | `H:1 L:2 E:1 T:1 S:0` |
+| `ASEHVK97` | Methane and sulfate profiles within the subsu... | `H:1 L:2 E:1 T:2 S:0` |
+| `BBDCY7DW` | Impact on Population Health of Baltic Shippin... | `H:1 L:0 E:0 T:1 S:0` |
+| `BE56TLWA` | Gardening as a mental health intervention: a ... | `H:1 L:0 E:0 T:0 S:0` |
+| `BMTEN2FG` | Genetic diversity and disease control in rice | `H:1 L:1 E:0 T:1 S:1` |
+| `DAI3VR9M` | Longer and more frequent marine heatwaves ove... | `H:1 L:0 E:0 T:0 S:0` |
+| `DFWI5DCP` | Rewetting prolongs root growing season in min... | `H:1 L:2 E:1 T:3 S:1` |
+| `G4VAFJZH` | Reduktion der Ammoniak-Emissionen auf der Weide | `H:1 L:0 E:0 T:1 S:0` |
+| `G7H698R6` | Effects of forest management intensity on her... | `H:1 L:0 E:1 T:1 S:0` |
+| `HNT6RCEA` | Regional Conditions and Land-Use Alter the Po... | `H:2 L:1 E:0 T:5 S:1` |
+| `LY4P94Q4` | An ecotope map of the trilateral Wadden Sea | `H:1 L:1 E:3 T:0 S:0` |
+| `N82RZ7WL` | Conspicuous decline of Fucus in Kiel Bay (Wes... | `H:1 L:1 E:1 T:1 S:0` |
+| `NGFBPJCG` | Imprint of past and present environmental con... | `H:1 L:1 E:1 T:2 S:0` |
+| `NZ7ETG2K` | Seasonal dynamics and changing sea level as d... | `H:1 L:1 E:1 T:6 S:0` |
+| `QGF2WV3C` | The impact of Natura 2000 designation on agri... | `H:1 L:0 E:0 T:0 S:0` |
+| `QR5QGMTI` | Untersuchungen über den Durchzug der Wasservö... | `H:1 L:2 E:1 T:1 S:0` |
+| `TAXBZ8G5` | Preliminary indications for diverging heat an... | `H:1 L:1 E:1 T:4 S:1` |
+| `TTJ3S6P9` | Synthesising the diversity of European agri-f... | `H:1 L:0 E:0 T:0 S:0` |
+| `UGNPXL8B` | Relationships between biodiversity and biolog... | `H:1 L:1 E:0 T:2 S:0` |
+| `V477VCE6` | Population dynamics of pikeperch (Sander luci... | `H:1 L:1 E:1 T:1 S:0` |
+| `V6SVVBUH` | Fauna der Nierdemoore | `H:1 L:1 E:1 T:17 S:0` |
+| `VQT78VA5` | The soil macrofauna (Diplopoda, Isopoda, Lumb... | `H:2 L:1 E:1 T:5 S:0` |
+| `WW9EZUVE` | Ecosystem services and disservices provided b... | `H:1 L:1 E:0 T:2 S:1` |
+| `XG99Q5DJ` | Widespread deoxygenation of temperate lakes | `H:1 L:0 E:1 T:0 S:0` |
+| `XMIP837H` | Invasion trajectory of Pacific oysters in the... | `H:1 L:0 E:1 T:2 S:0` |
+| `XQ7DW4VS` | Zur aktuellen Verbreitung des Mausohrs, Myoti... | `H:1 L:1 E:2 T:1 S:0` |
+| `XU5H8QJI` | Der Kalikokrebs Orconectes immunis am nördlic... | `H:1 L:0 E:1 T:1 S:0` |
+| `Z6CEAMK4` | Effects of ecological flooding on the tempora... | `H:1 L:2 E:1 T:2 S:0` |
+| `ZQ329JQ6` | The North Sea — A shelf sea in the Anthropocene | `H:1 L:0 E:0 T:0 S:0` |
+| `ZS59ID9J` | Wieviel weniger darf´s denn sein? Düstere Zuk... | `H:1 L:0 E:1 T:10 S:1` |
