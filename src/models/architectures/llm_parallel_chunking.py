@@ -813,7 +813,7 @@ def merge_chunk_votes(
             else None
         )
         srv_votes[(cat, term)] += 1
-    for (cat, term), v in sorted(srv_votes.items(), key=lambda kv: (-kv[1], kv[0])):
+    for (cat, term), v in sorted(srv_votes.items(), key=lambda kv: (-kv[1], str(kv[0][0]), str(kv[0][1]))):
         if strict and v < 2:
             continue  # 1-vote service pairs are FPs in >90% of cases
         eco_services.append({"category": cat, "term": term})
