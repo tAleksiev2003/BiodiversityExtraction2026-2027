@@ -26,9 +26,17 @@ class ChatClient:
         """Return a parsed JSON response and usage metadata, or fail explicitly."""
         # UTF-8 bytes are a conservative proxy for common byte-based tokenizers.
         # This is not an exact token counter for arbitrary hosted models.
-        estimated = sum(len(m["content"].encode("utf-8")) + 64 for m in messages)
+        estimated = sum(
+        len(m["content"].encode("utf-8")) + 64 for m in messages)
+
         if estimated + self.max_output > self.context_budget:
-            raise ValueError("Context guard exceeded: raise budget/model context or shorten chunks/state")
+            raise ValueError(
+                "Context guard exceeded: "
+         f"input_byte_estimate={estimated}, "
+            f"max_output={self.max_output}, "
+            f"context_budget={self.context_budget}, "
+            f"message_count={len(messages)}"
+        )
         request = {"model": self.model, "messages": messages, "temperature": 0,
                    "max_tokens": self.max_output, "stream": False,
                    "top_p": 1, "frequency_penalty": 0, "presence_penalty": 0, "stop": None  }

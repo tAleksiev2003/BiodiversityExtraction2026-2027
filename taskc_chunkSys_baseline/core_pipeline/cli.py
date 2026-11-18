@@ -9,7 +9,7 @@ import time
 import zipfile
 from pathlib import Path
 from .client import ChatClient
-from .documents import pdf_to_tei, tei_sections, make_chunks
+from .documents import pdf_to_tei, tei_pages, make_chunks
 from .pipeline import run_paper
 from .evaluate import read_records, evaluate, matching_gold
 from .schema import load_schema, catalogue, DATA
@@ -65,7 +65,7 @@ def run_command(args):
         for paper_id, path in zip(ids, paths):
             source_hashes[paper_id] = hashlib.sha256(path.read_bytes()).hexdigest()
             xml = pdf_to_tei(path, args.grobid_url, Path(args.cache) / "tei") if args.input_format == "pdf" else path.read_text()
-            chunks = make_chunks(tei_sections(xml), args.chunk_chars, args.overlap)
+            chunks = make_chunks(tei_pages(xml),args.pages_per_chunk)
             record, audit = run_paper(paper_id, chunks, client, args.mode, args.workers,
                                       args.quote_threshold, args.min_votes)
             write_json(output / (paper_id + ".audit.json"), audit)
@@ -102,7 +102,7 @@ def build_parser():
     run.add_argument("--grobid-url", default="http://localhost:8070")
     run.add_argument("--cache", default=".cache/taskc")
     run.add_argument("--workers", type=int, default=4)
-    run.add_argument("--chunk-chars", type=int, default=5000)
+    run.add_argument("--pages-per-chunk", type=int, default=10)
     run.add_argument("--overlap", type=int, default=300)
     run.add_argument("--quote-threshold", type=float, default=1.0)
     run.add_argument("--min-votes", type=int, default=1)
