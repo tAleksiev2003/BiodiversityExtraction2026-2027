@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 import time
 from typing import Any
@@ -155,12 +156,104 @@ def build_rag_user_prompt(
     )
 
 
+_DOCLING_CONVERTER: Any = None
+
+
+def _get_docling_converter() -> Any:
+    """Lazily initializes one Docling DocumentConverter (no OCR, fast CPU)."""
+    global _DOCLING_CONVERTER
+    if _DOCLING_CONVERTER is None:
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+
+        opts = PdfPipelineOptions(do_ocr=False, do_table_structure=True, document_timeout=120.0)
+        _DOCLING_CONVERTER = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+        )
+    return _DOCLING_CONVERTER
+
+
+def extract_docling_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+) -> list[dict[str, Any]]:
+    """
+    Converts a PDF with IBM Docling (cached as Markdown under `data/parsed_text/docling_dev/`),
+    splits by Markdown headings while dropping References/Bibliography, and groups into
+    <= 4 semantic sections. Falls back to `extract_semantic_sections` on error.
+    """
+    cache_dir = pdf_dir.parent.parent / "parsed_text" / "docling_dev"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{zot_id}.md"
+    pdf_path = pdf_dir / f"{zot_id}.pdf"
+
+    md_text = ""
+    if cache_file.exists():
+        md_text = cache_file.read_text(encoding="utf-8", errors="ignore")
+    elif pdf_path.exists():
+        try:
+            conv = _get_docling_converter()
+            res = conv.convert(str(pdf_path))
+            md_text = res.document.export_to_markdown()
+            if md_text.strip():
+                cache_file.write_text(md_text, encoding="utf-8")
+        except Exception as exc:
+            print(f"[Docling fallback for {zot_id}: {exc}]", flush=True)
+
+    if not md_text.strip():
+        return extract_semantic_sections(zot_id, rec, pdf_dir)
+
+    # Split Markdown by headings and drop reference/acknowledgement sections
+    stop_re = re.compile(
+        r"^(references|bibliography|literatur(?:verzeichnis)?|acknowledg?ments?|danksagung|appendix|anhang)\b",
+        re.IGNORECASE,
+    )
+    raw_sections: list[tuple[str, str]] = []
+    cur_head = "Abstract & Introduction"
+    cur_lines: list[str] = []
+    for line in md_text.splitlines():
+        m = re.match(r"^#{1,3}\s+(.*)$", line.strip())
+        if m:
+            body = "\n".join(cur_lines).strip()
+            if len(body) > 100:
+                raw_sections.append((cur_head, body))
+            cur_head = m.group(1).strip()
+            cur_lines = []
+            if stop_re.match(cur_head):
+                break
+        else:
+            cur_lines.append(line)
+    else:
+        body = "\n".join(cur_lines).strip()
+        if len(body) > 100:
+            raw_sections.append((cur_head, body))
+
+    if not raw_sections:
+        return extract_semantic_sections(zot_id, rec, pdf_dir)
+
+    # Group into up to 4 balanced sections so prompt budget stays clean
+    if len(raw_sections) <= 4:
+        return [{"section_name": h[:60], "text": t} for h, t in raw_sections]
+
+    step = max(1, (len(raw_sections) + 3) // 4)
+    grouped: list[dict[str, Any]] = []
+    for i in range(0, len(raw_sections), step):
+        chunk = raw_sections[i : i + step]
+        names = " / ".join(h[:25] for h, _ in chunk)
+        text = "\n\n".join(f"## {h}\n{t}" for h, t in chunk)
+        grouped.append({"section_name": names[:60], "text": text})
+    return grouped[:4]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
     parser.add_argument("--model", default="deepseek-v4.1-flash-1017")
     parser.add_argument("--top-k", type=int, default=2, help="Number of kNN training anchors")
     parser.add_argument("--grobid-url", default=None)
+    parser.add_argument("--docling", action="store_true", help="Use IBM Docling Markdown parser")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -194,9 +287,10 @@ def main() -> None:
         client = RobustOpenAICompatClient(args.provider, actual_model, args.temperature, args.rpm)
 
     model_slug = actual_model.replace("/", "_").replace(":", "_")
-    grobid_suffix = "_grobid" if args.grobid_url else ""
-    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{grobid_suffix}"
-    run_title = f"Architecture 3 (RAG-Anchored Sections{' + GROBID' if args.grobid_url else ''}): {actual_model}"
+    parser_suffix = "_docling" if args.docling else ("_grobid" if args.grobid_url else "")
+    parser_label = " + Docling" if args.docling else (" + GROBID" if args.grobid_url else "")
+    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}"
+    run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}): {actual_model}"
 
     ckpt_dir = REPO_ROOT / "outputs" / CATEGORY / run_model_id
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -219,7 +313,9 @@ def main() -> None:
             continue
 
         rec = gold[zot_id]
-        if args.grobid_url:
+        if args.docling:
+            sections = extract_docling_sections(zot_id, rec, pdf_dir)
+        elif args.grobid_url:
             sections = extract_grobid_chunks(zot_id, rec, pdf_dir, args.grobid_url)
         else:
             sections = extract_semantic_sections(zot_id, rec, pdf_dir)

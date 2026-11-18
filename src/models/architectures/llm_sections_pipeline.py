@@ -83,19 +83,46 @@ class RobustOpenAICompatClient(OpenAICompatClient):
     """
     Subclass of OpenAICompatClient with robust retry and exponential backoff
     for transient connection failures, timeouts, rate limits (429), and 5xx errors.
+    If a daily quota reset ('Retry after X seconds') is returned, waits patiently
+    until the quota resets rather than dropping the paper.
     """
 
     def chat(self, system: str, user: str, max_retries: int = 6) -> str:
-        for attempt in range(max_retries):
+        transient_attempts = 0
+        while True:
             try:
                 return super().chat(system, user)
             except Exception as exc:
                 err_msg = str(exc)
-                if attempt == max_retries - 1:
-                    print(f"\n[ERROR] Persistent API failure after {max_retries} attempts: {err_msg}")
+                # Detect SAIA / API daily rate limit (HTTP 429) and wait until reset
+                is_rate_limit = "429" in err_msg or "rate limit" in err_msg.lower()
+                m_retry = re.search(r"retry after\s+(\d+)\s+seconds?", err_msg, re.IGNORECASE)
+                if is_rate_limit:
+                    wait_sec = (int(m_retry.group(1)) + 60) if m_retry else 900
+                    wait_sec = min(max(wait_sec, 60), 86400)
+                    print(
+                        f"\n[RATE LIMIT 429] Waiting {wait_sec}s (~{wait_sec/3600:.1f}h) for quota reset...",
+                        flush=True,
+                    )
+                    # Sleep in 30-min chunks so logs show periodic heartbeats
+                    remaining = wait_sec
+                    while remaining > 0:
+                        chunk = min(remaining, 1800)
+                        time.sleep(chunk)
+                        remaining -= chunk
+                        if remaining > 0:
+                            print(f"[RATE LIMIT 429] Still waiting... {remaining}s remaining.", flush=True)
+                    continue
+
+                transient_attempts += 1
+                if transient_attempts >= max_retries:
+                    print(f"\n[ERROR] Persistent API failure after {max_retries} attempts: {err_msg}", flush=True)
                     return ""
-                wait_sec = min(120, (2 ** attempt) * 5)
-                print(f"\n[RETRY {attempt+1}/{max_retries}] Transient API error: {err_msg[:120]}... Waiting {wait_sec}s")
+                wait_sec = min(120, (2 ** (transient_attempts - 1)) * 5)
+                print(
+                    f"\n[RETRY {transient_attempts}/{max_retries}] Transient API error: {err_msg[:120]}... Waiting {wait_sec}s",
+                    flush=True,
+                )
                 time.sleep(wait_sec)
         return ""
 
