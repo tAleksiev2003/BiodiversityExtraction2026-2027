@@ -2,7 +2,7 @@
 
 These numbers decide how the pipelines are run (SPEC.md, section 9, M1): documents
 longer than the context window of the full-text model cannot use pipeline F, and the
-number of chunks is the number of LLM requests per document in pipelines A and B.
+number of chunks is the number of LLM requests per document in pipeline B.
 
 Usage (run by the team after src/pdf_to_text.py, it reads course data):
     python3 src/document_statistics.py --split dev

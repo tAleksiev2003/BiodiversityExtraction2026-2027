@@ -252,4 +252,4 @@ def test_prompt_shows_every_allowed_value_and_keeps_the_text_unchanged(invented_
     assert "chunk 1/1 of document DOC00001" in content
     assert '{"field": "habitat"' in content  # the escaped braces of the output structure
     assert "Erfundene Variable" in content     # vocabulary from the invented label file
-    assert "LEDGER" not in content.upper().split("## TEXT")[0]  # no pipeline A block
+    assert "LEDGER" not in content.upper().split("## TEXT")[0]  # the unused pipeline A section is not sent

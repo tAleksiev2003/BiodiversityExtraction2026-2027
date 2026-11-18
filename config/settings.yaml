@@ -29,7 +29,7 @@ baselines:
 models:
   full_text: deepseek-v4-flash-0731         # pipeline F, 1M context
   full_text_fallback: glm-5.3-flash         # if the main model is too slow
-  chunked: qwen3-30b-a3b-instruct-2507      # pipelines A and B, 256K context
+  chunked: qwen3-30b-a3b-instruct-2507      # pipeline B, 256K context
   full_text_context_tokens: 1000000         # deepseek-v4-flash: longer documents are split into parts (full_text_part_tokens)
   chunked_context_tokens: 256000            # qwen3-30b-a3b
   full_text_part_tokens: 900000             # pipeline F: max size of one part for documents over the context window

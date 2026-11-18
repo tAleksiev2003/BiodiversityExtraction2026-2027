@@ -3,12 +3,11 @@
 ## What is it?
 
 Reads biodiversity papers (PDF) and fills a fixed German record per paper.
-We compare three ways to feed long documents to an LLM:
+We compare two ways to feed long documents to an LLM:
 
 | Pipeline | Idea | Model |
 |---|---|---|
 | **F** full text | whole document, one call | `deepseek-v4-flash-0731` |
-| **A** sequential | chunk by chunk, findings are passed on | `qwen3-30b-a3b-instruct-2507` |
 | **B** parallel | chunks independently, merged in Python | `qwen3-30b-a3b-instruct-2507` |
 
 Every label needs a verbatim quote; a Python checker drops labels without one.
@@ -47,7 +46,7 @@ Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW
 │   ├── evaluation.py         scores predictions
 │   ├── output.py             writes predictions.jsonl + zip
 │   ├── runs.py               creates runs/<run>/
-│   ├── pipelines/            F, A, B (from M3 on)
+│   ├── pipelines/            F, B (from M3 on)
 │   └── scripts/              build data/labels/
 │
 ├── tests/                  tests on invented data

@@ -1,4 +1,4 @@
-"""Split a Docling document into chunks for pipelines A and B (SPEC.md, section 3, step 2).
+"""Split a Docling document into chunks for pipeline B (SPEC.md, section 3, step 2).
 
 Two levels:
 - headings found: Docling's HybridChunker splits at headings and splits sections that

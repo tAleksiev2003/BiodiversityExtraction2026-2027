@@ -24,7 +24,7 @@ from pipelines.full_text import CALL_LOG_NAME, run_full_text
 from runs import create_run_dir
 from settings import load_settings
 
-PIPELINES = ("full_text",)  # M3b and M4 add "parallel" and "sequential"
+PIPELINES = ("full_text",)  # M3b adds "parallel"
 SPLITS = ("dev", "test")
 
 

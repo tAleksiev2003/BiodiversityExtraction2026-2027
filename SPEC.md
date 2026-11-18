@@ -44,15 +44,12 @@ PDF ──► Docling ──► chunks C1 … Cn
             │
             ├──────────────────────────────────────────┐
             ▼                                          ▼
-   F) FULL TEXT                          chunks C1 … Cn
-   whole document, one call                 │
-   model: deepseek-v4-flash-0731            ├─────────────────────────┐
-            │                               ▼                         ▼
-            │                     A) SEQUENTIAL             B) PARALLEL
-            │                     ledger is passed on       independent calls
-            │                     model: qwen3-30b-a3b      model: qwen3-30b-a3b
-            │                               │                         │
-            ▼                               ▼                         ▼
+   F) FULL TEXT                          B) PARALLEL
+   whole document, one call              chunks C1 … Cn, independent calls,
+   model: deepseek-v4-flash-0731         merged in Python
+            │                            model: qwen3-30b-a3b
+            │                                          │
+            ▼                                          ▼
    verbatim checker (after EVERY LLM call, section 3a)
             │
             ▼
@@ -61,7 +58,7 @@ PDF ──► Docling ──► chunks C1 … Cn
 
 1. **PDF → text:** Docling converts every document into text with headings and page
    numbers. One converter for all document types.
-2. **Chunking** (pipelines A and B), with Docling's HybridChunker:
+2. **Chunking** (pipeline B), with Docling's HybridChunker:
    - **headings found:** split at headings; merge small neighbouring sections up to
      `chunking.max_chunk_tokens`; split longer sections at paragraph boundaries;
    - **no headings found** (fallback): fixed windows of `max_chunk_tokens` at paragraph
@@ -76,10 +73,6 @@ PDF ──► Docling ──► chunks C1 … Cn
      is one call; labels are merged as in pipeline B (verified quotes from any part
      count). These documents are logged and reported separately
      ('98 documents in one call, 2 in n parts').
-   - **A) Sequential** (after Chain of Agents, Zhang et al. 2024): call *i* receives
-     chunk *i* plus the current evidence ledger and returns the updated ledger. It may
-     add, confirm or remove labels (rules L1–L4 in the prompt). The last ledger is the
-     result; there is no manager call.
    - **B) Parallel** (after LLM×MapReduce, Zhou et al. 2025): every chunk is processed
      independently. Merging in Python: a label is kept if it has at least
      `verbatim_check.min_verified_quotes` verified quotes across all chunks. A chunk that
@@ -91,15 +84,14 @@ PDF ──► Docling ──► chunks C1 … Cn
 **Labels are German.** The model chooses enum values directly from the German lists in
 the schema files. There is no English → German label mapping.
 
-**Note for the analysis:** F uses another model than A and B. Differences between F and
-A/B therefore come from the architecture **and** the model. Report this as a limitation.
+**Note for the analysis:** F uses another model than B. Differences between F and B
+therefore come from the architecture **and** the model. Report this as a limitation.
 
 ## 3a. Verbatim checker
 
 **Purpose:** a deterministic Python filter that runs right after every LLM call and
 discards each extracted label whose value is not in the schema or whose quote cannot be
-found verbatim in the text that was read. In pipeline A it runs before the ledger is
-passed on, so hallucinated labels never travel to later chunks.
+found verbatim in the text that was read.
 
 **Input:** the parsed LLM answer, the exact text sent to the model, the schema values,
 `data/labels/term_to_category.json`.
@@ -113,7 +105,7 @@ passed on, so hallucinated labels never travel to later chunks.
 | C1 | Allowed value | an enum value is not exactly in the schema list | R1 |
 | C2 | Consistent pair | a term does not belong to its category (`term_to_category.json`) | R6 |
 | C3 | Plausible quote | the quote is missing, has fewer than `min_quote_words` or more than `max_quote_words` words, or contains "..." / "…" | R2 |
-| C4 | Verbatim quote | the normalised quote is not in the normalised text with a fuzzy score ≥ `quote_match_threshold` | R2, L4 |
+| C4 | Verbatim quote | the normalised quote is not in the normalised text with a fuzzy score ≥ `quote_match_threshold` | R2 |
 | C5 | Enough evidence | fewer than `min_verified_quotes` verified quotes remain | – |
 
 **Normalisation before C4** (same for quote and text): Unicode NFKC; lowercase; join
@@ -122,8 +114,7 @@ dashes and ligatures. Matching: `rapidfuzz.fuzz.partial_ratio`.
 
 **Special cases:** completed taxa names (`name_source = "completed"`) need a verbatim
 quote, but the name itself is not searched in the text. For `biodiversity_variable`
-only the quote is checked, never the German value. Removals in pipeline A also need a
-verbatim quote; otherwise they are ignored.
+only the quote is checked, never the German value.
 
 **Limitation (report it):** the checker proves that a quote exists in the text, not that
 it supports the label or that the study examined it.
@@ -198,7 +189,11 @@ schema files and `data/labels/`. The template contains:
    completing taxa names, consistent pairs, JSON only);
 4. guided reasoning steps S1–S5 (study system, organisms, measurements, services,
    self-check), written into the `reasoning` field before the labels;
-5. the JSON output structure; an extra block with ledger rules L1–L4 for pipeline A.
+5. the JSON output structure.
+
+Prompts v1 and v2 still contain a section "ADDITION FOR PIPELINE A" with ledger rules;
+the code never reads it (pipeline A was dropped, section 13). It is removed in the next
+prompt version (`config/prompts/README.md`).
 
 Parse and validate the answer with `pydantic`. Invalid JSON: retry once with the parse
 error appended, then log and treat the call as empty.
@@ -253,19 +248,17 @@ unknown ids, duplicate JSON keys, non-string values.
 | M2 | LLM client with `.env`, cache, rate limiter, retries, dry-run | one fixture document end to end; a second run makes 0 requests |
 | M3a | Pipeline F + verbatim checker | dev scores with and without the checker |
 | M3b | Pipeline B | dev scores with and without the checker |
-| M4 | Pipeline A | dev scores with and without the checker |
-| M5 | Experiment runner and results table | one command reproduces the table below |
+| M4 | dropped (2026-11-18): was pipeline A (sequential), see section 13 | – |
+| M5 | Experiment runner and results table (pipelines F and B) | one command reproduces the table below |
 
 | Pipeline | Model | Verbatim checker | `min_verified_quotes` |
 |---|---|---|---|
 | baselines (random, most frequent) | – | – | – |
 | F full text | deepseek-v4-flash-0731 | off / on | 1 |
 | B parallel | qwen3-30b-a3b-instruct-2507 | off / on | 1, 2 |
-| A sequential | qwen3-30b-a3b-instruct-2507 | off / on | 1, 2 |
 
-**Research questions:** Can a small model that reads chunks (A, B) match a large model
-that reads the full text (F)? Does passing information between chunks help (A) or is
-independent processing more robust (B)? How much does the verbatim checker help?
+**Research questions:** Can a small model that reads chunks independently (B) match a
+large model that reads the full text (F)? How much does the verbatim checker help?
 
 ## 10. Code quality rules
 
@@ -273,7 +266,7 @@ The team learns from this code, so it must be easy to read and to extend:
 
 - Python 3.13, type hints, short docstrings that explain *why*.
 - Small modules with one responsibility each, e.g. `config`, `data`, `pdf_to_text`,
-  `chunking`, `labels`, `prompts`, `llm_client`, `pipelines/{full_text,sequential,parallel}`,
+  `chunking`, `labels`, `prompts`, `llm_client`, `pipelines/{full_text,parallel}`,
   `verbatim_checker`, `output`, `evaluation`.
 - No magic numbers: every threshold and size comes from `config/settings.yaml`.
 - Clear names over short names; no clever one-liners.
@@ -291,7 +284,7 @@ The team learns from this code, so it must be easy to read and to extend:
 4. **Docling runtime** on very long or scanned documents (OCR is slow); measure in M1.
 5. **Start values** of `quote_match_threshold`, `min_quote_words`, `max_quote_words`,
    `max_chunk_tokens`: tune on a few dev documents.
-6. **Chunk size for pipelines A and B** (decide before M3b). M1 result: 2,168 chunks for
+6. **Chunk size for pipeline B** (decide before M3b). M1 result: 2,168 chunks for
    100 dev documents with 8,000-token chunks; with the SAIA limit of 800 requests per
    day (from the response headers in M2) one pipeline B run takes almost 3 days; one
    document alone has 837 chunks. Proposal: adaptive chunk size
@@ -329,3 +322,4 @@ Rules:
 | 2026-11-18 | Extraction prompt v2 is the default (`config/prompts/extraction_v2.txt`); prompt versions are never edited after a run (`config/prompts/README.md`) | Pipeline F, dev with PDF: C1 0.5250 → 0.5680, C2b 0.2854 → 0.3302 (40 words). Cause found in the reasoning of the 25 empty answers: non-study documents (reports, books, web pages) were left empty because of "only what THIS study examined" | adopted |
 | 2026-11-18 | Verbatim checker: `max_quote_words` 60 for C1 and C2b (replaces the provisional 40/60 split above) | With prompt v2: C1 0.5680 (40) vs 0.5711 (60), C2b 0.3302 (40) vs 0.3315 (60); differences are small, one setting is simpler | adopted |
 | 2026-11-18 | Before scoring a run, check that `failed` in summary.json is empty; a failed document gets an empty prediction and lowers the score | v2 run: 2 failed documents lowered C1 from 0.5680 to 0.5610 | adopted |
+| 2026-11-18 | Pipeline A (sequential) dropped; the project compares F and B | team decision | adopted |
