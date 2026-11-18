@@ -515,7 +515,7 @@ def read_prompt_file(path: Path) -> list[Message]:
     """Send a whole text file as one user message.
 
     Enough for the smoke test; the real prompts (system + user) are built by the
-    pipelines from config/prompts/extraction.txt (milestone M3).
+    pipelines from the file in paths.prompt_extraction (milestone M3).
     """
     return [{"role": "user", "content": path.read_text(encoding="utf-8").strip()}]
 

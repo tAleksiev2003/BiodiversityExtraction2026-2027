@@ -1,0 +1,3 @@
+# The first extraction prompt (M3a baseline). Its answers are in the cache, so a run costs 0 requests.
+paths:
+  prompt_extraction: config/prompts/extraction_v1.txt

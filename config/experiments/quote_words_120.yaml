@@ -1,0 +1,4 @@
+# Checker tuning (free): the same LLM answers, quotes may have up to 120 words (default 40).
+# The prompts are unchanged, so a run with this file is answered from the cache.
+verbatim_check:
+  max_quote_words: 120

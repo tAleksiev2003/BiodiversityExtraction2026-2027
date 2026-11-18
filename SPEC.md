@@ -320,3 +320,12 @@ Rules:
 - Every run logs wall-clock time per stage (conversion, extraction, checking),
   the number of LLM requests and the average time per request.
 - A speed-up must not change the results (tested: parallel = sequential output).
+
+## 13. Decisions
+
+| Date | Decision | Evidence | Status |
+|---|---|---|---|
+| 2026-11-18 | Verbatim checker: `max_quote_words` 40 for C1, 60 for C2b (same LLM answers, filtered differently; C1 and C2b are submitted separately) | Pipeline F, dev with PDF (100 docs). C1: 40 → 0.5250, 60 → 0.5196, 80 → 0.5158, 120 → 0.5119. C2b: 40 → 0.2854, 60 → 0.3113, 80 → 0.3113, 120 → 0.3109 | provisional: confirm after the error analysis; differences may partly be noise (100 docs) |
+| 2026-11-18 | Extraction prompt v2 is the default (`config/prompts/extraction_v2.txt`); prompt versions are never edited after a run (`config/prompts/README.md`) | Pipeline F, dev with PDF: C1 0.5250 → 0.5680, C2b 0.2854 → 0.3302 (40 words). Cause found in the reasoning of the 25 empty answers: non-study documents (reports, books, web pages) were left empty because of "only what THIS study examined" | adopted |
+| 2026-11-18 | Verbatim checker: `max_quote_words` 60 for C1 and C2b (replaces the provisional 40/60 split above) | With prompt v2: C1 0.5680 (40) vs 0.5711 (60), C2b 0.3302 (40) vs 0.3315 (60); differences are small, one setting is simpler | adopted |
+| 2026-11-18 | Before scoring a run, check that `failed` in summary.json is empty; a failed document gets an empty prediction and lowers the score | v2 run: 2 failed documents lowered C1 from 0.5680 to 0.5610 | adopted |

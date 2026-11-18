@@ -1,4 +1,4 @@
-"""Build the extraction prompt from config/prompts/extraction.txt (SPEC.md, section 6).
+"""Build the extraction prompt from the file in paths.prompt_extraction (SPEC.md, section 6).
 
 The template has sections marked by lines like `=== SYSTEM ===`. Its placeholders are
 filled here from the schema files and data/labels/, so the model sees every allowed

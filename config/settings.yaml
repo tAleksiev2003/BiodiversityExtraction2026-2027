@@ -12,7 +12,7 @@ paths:
   schema_biodiversity: data/schemas/biodiversity.json
   term_to_category: data/labels/term_to_category.json
   variable_vocabulary: data/labels/variable_vocabulary.json
-  prompt_extraction: config/prompts/extraction.txt
+  prompt_extraction: config/prompts/extraction_v2.txt   # versions and results: config/prompts/README.md
   prompt_retry_invalid_json: config/prompts/retry_invalid_json.txt   # appended once after an answer that is not valid JSON
   processed: data/processed
   docling: data/processed/docling           # converted documents (Docling JSON), one folder per split
@@ -67,7 +67,7 @@ verbatim_check:
   enabled: true                             # false = ablation without the checker
   quote_match_threshold: 90                 # 0-100, rapidfuzz partial_ratio
   min_quote_words: 5
-  max_quote_words: 40
+  max_quote_words: 60                       # 2026-11-18: with prompt v2, 60 is at least as good as 40 for C1 and C2b (SPEC.md, section 13)
   min_verified_quotes: 1
 
 prompt:

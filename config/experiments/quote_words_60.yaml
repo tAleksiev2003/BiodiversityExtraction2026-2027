@@ -1,0 +1,4 @@
+# Same as the default since 2026-11-18 (max_quote_words 60 in settings.yaml); kept so old run names stay reproducible.
+# The prompts are unchanged, so a run with this file is answered from the cache.
+verbatim_check:
+  max_quote_words: 60
