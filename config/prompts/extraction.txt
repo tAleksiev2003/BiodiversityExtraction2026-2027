@@ -43,7 +43,14 @@ R7  Taxa names. If the study examines a few species, give one entry per species.
     Take names from the text when they are there. If a German or scientific name is
     missing, you may add it from your own knowledge, but set "name_source" to
     "completed". If you do not know a name, set it to null.
-    {taxa_naming_conventions}
+    Spelling rules (names are compared character by character):
+    - Scientific names without author names or years, e.g. "Fagus sylvatica",
+      not "Fagus sylvatica L.".
+    - If only the genus is known, write "Genus spp." (with a dot).
+    - For a group of many species, give one entry with the group's scientific name
+      (often one word, e.g. a family) and its German group name.
+    - German names start with a capital letter and use the common German spelling,
+      including hyphens where usual (e.g. "Rot-Buche").
 R8  Output format. Answer with one JSON object only, exactly in the structure below.
     No markdown, no code fences, no text before or after the JSON.
 
