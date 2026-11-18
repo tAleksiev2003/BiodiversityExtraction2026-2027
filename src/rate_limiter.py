@@ -17,8 +17,13 @@ same day stops at once if the server reports 0 left for the day, and waits if it
 0 left for the hour. If a response lacks a header, that window falls back to local
 counting. The 10-second window is always counted locally.
 
-SAIA counts these limits per API key, so the client keeps one limiter per key
-(src/api_key_pool.py) and stops only when every key has reached its daily limit.
+SAIA counts these limits per Academic Cloud account, not per API key (SPEC.md, section 5):
+several keys of one account share one quota. The client still keeps one limiter per key
+(src/api_key_pool.py) and stops only when every key has reached its daily limit. With
+keys of different accounts the local counts are right; with keys of one account only the
+server counts (which are the account's) are right, and they win as soon as a response
+reports them. The server's hour refills gradually, not at the full hour, so waiting one
+hour after a report of 0 left is safe but can be longer than needed.
 
 Parallel requests (several threads share one limiter):
 - checking the windows and recording a request happen under one lock, so two threads

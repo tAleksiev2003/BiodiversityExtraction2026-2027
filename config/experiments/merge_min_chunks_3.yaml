@@ -1,0 +1,5 @@
+# Pipeline B merging (free): a label needs a verified quote in at least 3 different chunks
+# (documents with fewer chunks: in all of them). Only the merging changes, the prompts do
+# not, so a run with this file is answered from the cache of the normal pipeline B run.
+merge:
+  min_chunks_per_label: 3

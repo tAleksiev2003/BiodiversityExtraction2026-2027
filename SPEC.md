@@ -47,7 +47,8 @@ PDF ──► Docling ──► chunks C1 … Cn
    F) FULL TEXT                          B) PARALLEL
    whole document, one call              chunks C1 … Cn, independent calls,
    model: deepseek-v4-flash-0731         merged in Python
-            │                            model: qwen3-30b-a3b
+            │                            model: deepseek-v4-flash-0731
+            │                            (one chunk = F's request)
             │                                          │
             ▼                                          ▼
    verbatim checker (after EVERY LLM call, section 3a)
@@ -64,6 +65,13 @@ PDF ──► Docling ──► chunks C1 … Cn
    - **no headings found** (fallback): fixed windows of `max_chunk_tokens` at paragraph
      boundaries with `chunking.chunk_overlap_tokens` overlap.
    Never truncate silently: log the chunking level and every split per document.
+   **Chunk size per document** (`src/chunk_packing.py`, decided 2026-11-18, section 13):
+   effective size = `max(max_chunk_tokens, ceil(document_tokens / max_chunks_per_document))`,
+   at most `models.chunked_part_tokens`. The chunker's pieces (at most `max_chunk_tokens`)
+   are packed together in document order up to that size, never split, so a document
+   has at most `max_chunks_per_document` chunks. If whole pieces do not fit into that
+   many chunks, the size is raised to the smallest size that fits (still at most the
+   cap); only a document that does not fit even at the cap gets more chunks (logged).
 3. **LLM calls** (prompt: `config/prompts/extraction.txt`, section 6):
    - **F) Full text:** the whole document in one call with `models.full_text`.
      A document that does not fit into the context window (M1: 2 of 100 dev documents
@@ -74,9 +82,18 @@ PDF ──► Docling ──► chunks C1 … Cn
      count). These documents are logged and reported separately
      ('98 documents in one call, 2 in n parts').
    - **B) Parallel** (after LLM×MapReduce, Zhou et al. 2025): every chunk is processed
-     independently. Merging in Python: a label is kept if it has at least
-     `verbatim_check.min_verified_quotes` verified quotes across all chunks. A chunk that
-     does not mention a label is not a vote against it.
+     independently with `models.chunked` and its own prompt
+     (`paths.prompt_extraction_chunked`); the requests of all documents run in one
+     thread pool. The verbatim checker runs per chunk with that chunk's text only.
+     **A document with exactly one chunk is the full-text case** (`parallel.one_chunk_as_full_text`):
+     it sends exactly F's request (the full text of `pdf_to_text.full_text`, prompt
+     `paths.prompt_extraction`, the same model), so the cache key is F's and the answer
+     comes from F's cache. Only documents with two or more chunks use the chunk prompt.
+     Merging in Python, per document: a label is kept if it has a verified quote in at
+     least min(`merge.min_chunks_per_label`, number of chunks of the document) different
+     chunks (default 1 = union; the min() keeps short documents from being emptied),
+     then C5 as in F. A chunk that does not mention a label is not a vote against it.
+     Merging needs no request, so merge experiments come from the cache.
 4. **Verbatim checker:** section 3a.
 5. **Write output:** `predictions.jsonl` with exactly one line per document, validated
    against both schemas (`jsonschema`), then a zip containing only that file.
@@ -84,8 +101,11 @@ PDF ──► Docling ──► chunks C1 … Cn
 **Labels are German.** The model chooses enum values directly from the German lists in
 the schema files. There is no English → German label mapping.
 
-**Note for the analysis:** F uses another model than B. Differences between F and B
-therefore come from the architecture **and** the model. Report this as a limitation.
+**Note for the analysis:** since 2026-11-18 F and B use the same model (DeepSeek) and
+one-chunk documents get the same request in both, so differences between F and B come
+from the documents with several chunks: chunking, the chunk prompt and the merging. The
+first B run used Qwen (`config/experiments/chunked_qwen.yaml`); there, model and
+architecture were mixed (section 13).
 
 ## 3a. Verbatim checker
 
@@ -127,7 +147,8 @@ See `README.md` (section "Repository Structure") for all folders and `CLAUDE.md`
 access rules.
 
 - `data/raw/`: course data, never read by Claude Code. Train: 908 documents with
-  references; dev: 900 reference records (see section 11, question 1); test: 500 PDFs.
+  references; dev: 100 PDFs with their references (`data/processed/dev_with_pdf.jsonl`;
+  the 900 dev records on CodaBench were an error, section 13); test: 500 PDFs.
 - **Schema files are the single source of truth for allowed values.** Load all values
   from the `enum` lists under `$defs`. Never hard-code or retype label strings.
 - Known pitfalls in the schemas:
@@ -148,8 +169,14 @@ access rules.
   `SAIA_API_KEY_2`, … (consecutive numbers); if no numbered key exists, the single
   `SAIA_API_KEY` is key 1. A key is never printed, logged or written anywhere else; logs,
   the summary and the run files name only its number ("key 2").
-- **Several keys** (`src/api_key_pool.py`): the limits below apply per key, so every key
-  has its own rate limiter and its own server counts. Each request goes to the key with
+- **Limits per account, not per key** (measured 2026-11-18): SAIA applies the limits below
+  per Academic Cloud account. Several keys of one account share one quota: a new key of
+  the same account showed the same remaining counts. Only keys of different accounts add
+  quota. The hourly limit refills gradually, not at the full hour (measured: 2 → 16 → 53
+  → 107 remaining within minutes).
+- **Several keys** (`src/api_key_pool.py`): every key has its own rate limiter and its own
+  server counts; for keys of one account the server counts are the shared ones and win
+  over the local count after the first answer. Each request goes to the key with
   the most requests left for the day (server count if known, else local count); keys
   whose hour or day is used up are skipped. A key that reaches its daily limit is left
   out and the run continues with the others; a key rejected with 401/403 (invalid or
@@ -162,7 +189,8 @@ access rules.
     continues where it ended;
   - client-side rate limiter per key (`llm.requests_per_10_seconds`, `llm.requests_per_hour`,
     `llm.requests_per_day`): before every request it waits until all three sliding
-    windows of the chosen key have room. 10 requests per minute would be 600 per hour, more than allowed;
+    windows of the chosen key have room (after a report of 0 left for the hour it waits a
+    full hour, although the server refills earlier; section 11). 10 requests per minute would be 600 per hour, more than allowed;
   - when **all** keys have reached their daily limit, the run stops at once with a clear
     message (naming how many keys were used) instead of waiting for hours. The cache keeps all answers, so running the same command the
     next day continues where it stopped. After every response the server's own counts
@@ -178,7 +206,9 @@ access rules.
 
 ## 6. Prompt
 
-Template: `config/prompts/extraction.txt`. Placeholders (`{habitat_labels}`,
+Templates: `paths.prompt_extraction` (pipeline F, currently `extraction_v2.txt`) and
+`paths.prompt_extraction_chunked` (pipeline B, `extraction_chunk_v1.txt`: v2 plus rule R9,
+"you see only one chunk"); versions in `config/prompts/README.md`. Placeholders (`{habitat_labels}`,
 `{ecosystem_terms_by_category}`, `{variable_vocabulary}`, …) are filled by code from the
 schema files and `data/labels/`. The template contains:
 
@@ -255,10 +285,11 @@ unknown ids, duplicate JSON keys, non-string values.
 |---|---|---|---|
 | baselines (random, most frequent) | – | – | – |
 | F full text | deepseek-v4-flash-0731 | off / on | 1 |
-| B parallel | qwen3-30b-a3b-instruct-2507 | off / on | 1, 2 |
+| B parallel | deepseek-v4-flash-0731 (Qwen: `chunked_qwen.yaml`) | off / on | 1, 2 |
 
-**Research questions:** Can a small model that reads chunks independently (B) match a
-large model that reads the full text (F)? How much does the verbatim checker help?
+**Research questions:** Does reading chunks independently (B) match reading the full
+text (F) with the same model? (The first B run with a small model, Qwen, is kept as an
+experiment.) How much does the verbatim checker help?
 
 ## 10. Code quality rules
 
@@ -266,7 +297,7 @@ The team learns from this code, so it must be easy to read and to extend:
 
 - Python 3.13, type hints, short docstrings that explain *why*.
 - Small modules with one responsibility each, e.g. `config`, `data`, `pdf_to_text`,
-  `chunking`, `labels`, `prompts`, `llm_client`, `pipelines/{full_text,parallel}`,
+  `chunking`, `chunk_packing`, `labels`, `prompts`, `llm_client`, `pipelines/{full_text,parallel}`,
   `verbatim_checker`, `output`, `evaluation`.
 - No magic numbers: every threshold and size comes from `config/settings.yaml`.
 - Clear names over short names; no clever one-liners.
@@ -275,8 +306,8 @@ The team learns from this code, so it must be easy to read and to extend:
 
 ## 11. Open questions
 
-1. **Dev data:** `dev.jsonl` has 900 records, but only 100 dev PDFs were downloaded.
-   Asked on ISIS. Until answered, develop on the 100 documents that have a PDF.
+1. ~~**Dev data:** `dev.jsonl` has 900 records, but only 100 dev PDFs were downloaded.~~
+   Closed 2026-11-18: the dev set is the 100 documents with a PDF (section 13).
 2. **Official `evaluate.py`:** asked on ISIS; until then use our own `src/evaluation.py`.
 3. **Taxa names:** how to reach the exact spelling of the database (copy from text,
    LLM completion, or both). Check the naming conventions in the training references and
@@ -284,14 +315,16 @@ The team learns from this code, so it must be easy to read and to extend:
 4. **Docling runtime** on very long or scanned documents (OCR is slow); measure in M1.
 5. **Start values** of `quote_match_threshold`, `min_quote_words`, `max_quote_words`,
    `max_chunk_tokens`: tune on a few dev documents.
-6. **Chunk size for pipeline B** (decide before M3b). M1 result: 2,168 chunks for
-   100 dev documents with 8,000-token chunks; with the SAIA limit of 800 requests per
-   day (from the response headers in M2) one pipeline B run takes almost 3 days; one
-   document alone has 837 chunks. Proposal: adaptive chunk size
-   `max(max_chunk_tokens, document_tokens / max_chunks_per_document)`, e.g. at most 20
-   chunks per document, so normal papers keep 8,000-token chunks and books stay
-   affordable without dropping text. Report results separately for short and long
-   documents.
+6. ~~**Chunk size for pipeline B**~~ Closed 2026-11-18: 16,000 tokens, at most 20 chunks
+   per document, cap 240,000 (section 3, step 2, and section 13). Still to do: report
+   results separately for short and long documents.
+7. **Rate limiter and the server's hour:** the limiter assumes a 60-minute window, but
+   SAIA refills the hour gradually (section 5). Should it probe the server (e.g. one
+   request after a few minutes) instead of waiting a full hour?
+8. **Order of requests in pipeline B:** start the largest chunks first, so a long
+   request does not run alone at the end of a run?
+9. **Cache the prepared chunks:** preparing (loading, counting, chunking) takes about
+   2 minutes per run of B, also for merge experiments that need no request.
 
 ## 12. Non-functional requirements
 
@@ -304,9 +337,9 @@ Time budgets (measured as wall-clock time and logged in every run):
   1 hour, so we can run and score at least one experiment per day.
 
 Limits:
-- SAIA API, per key (from the x-ratelimit-limit-* response headers):
-  10 requests per 10 seconds, 400 per hour, 800 per day.
-  Total capacity = these values x number of keys in .env.
+- SAIA API, per Academic Cloud account, not per key (from the x-ratelimit-limit-*
+  response headers and section 5): 10 requests per 10 seconds, 400 per hour, 800 per day.
+  Total capacity = these values x number of different accounts whose keys are in .env.
 - PDF conversion: each Docling worker needs about 6 GB RAM.
 
 Rules:
@@ -323,3 +356,11 @@ Rules:
 | 2026-11-18 | Verbatim checker: `max_quote_words` 60 for C1 and C2b (replaces the provisional 40/60 split above) | With prompt v2: C1 0.5680 (40) vs 0.5711 (60), C2b 0.3302 (40) vs 0.3315 (60); differences are small, one setting is simpler | adopted |
 | 2026-11-18 | Before scoring a run, check that `failed` in summary.json is empty; a failed document gets an empty prediction and lowers the score | v2 run: 2 failed documents lowered C1 from 0.5680 to 0.5610 | adopted |
 | 2026-11-18 | Pipeline A (sequential) dropped; the project compares F and B | team decision | adopted |
+| 2026-11-18 | Dev set = the 100 documents with a PDF and their references (`data/processed/dev_with_pdf.jsonl`); nothing is filled for the other dev ids. The `full` set (900) only checks our scorer against the official baseline numbers | only 100 dev PDFs exist; the 900 dev references on CodaBench were an error (confirmed by the course) | adopted |
+| 2026-11-18 | Pipeline B chunk size: `max_chunk_tokens` 16,000 (was 8,000), `max_chunks_per_document` 20, effective size `max(max_chunk_tokens, ceil(document_tokens / 20))`; pieces packed in order so a document has at most 20 chunks; cap `models.chunked_part_tokens` 240,000 (safety net for test documents; chosen for Qwen's 256K context, kept with DeepSeek so the chunks stay the same). 8K stays a later experiment (`chunk_8k.yaml`) | estimated dev run about 420 requests (8K: about 615); more context per chunk; with 16K about 37 % of the dev documents fit into one chunk, which makes B closer to F. Largest dev document 2,387,800 tokens (3WEEGFGW) → about 120K per chunk, so the cap does not apply on dev. The M1 statistics were made with 8,000 and are not rerun | adopted |
+| 2026-11-18 | Pipeline B has its own prompt (`extraction_chunk_v1.txt`), so F keeps prompt v2 | team decision | adopted |
+| 2026-11-18 | Pipeline B merges by vote (`merge.min_chunks_per_label`, default 1), tunable without new requests (`merge_min_chunks_2.yaml`, `merge_min_chunks_3.yaml`) | team decision | adopted |
+| 2026-11-18 | B with Qwen: C1 0.4527 / C2b 0.2070 (k=1), 0.4295 / 0.1852 (k=2), 0.4189 / 0.1626 (k=3); union is best | dev, 100 papers | adopted |
+| 2026-11-18 | Gap F vs B is mostly not the chunking: one-chunk papers F 0.678 vs B 0.416 (C1), multi-chunk papers 0.524 vs 0.465 | dev | finding |
+| 2026-11-18 | One-chunk documents use prompt v2 and F's request; B uses DeepSeek like F, Qwen kept as experiment | to separate model and chunking | adopted |
+| 2026-11-18 | SAIA limits apply per Academic Cloud account, not per API key; the hourly limit refills gradually | a new key of the same account showed the same remaining counts; hour remaining 2 → 16 → 53 → 107 within minutes | finding |

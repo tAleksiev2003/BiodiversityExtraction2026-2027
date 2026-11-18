@@ -8,7 +8,7 @@ We compare two ways to feed long documents to an LLM:
 | Pipeline | Idea | Model |
 |---|---|---|
 | **F** full text | whole document, one call | `deepseek-v4-flash-0731` |
-| **B** parallel | chunks independently, merged in Python | `qwen3-30b-a3b-instruct-2507` |
+| **B** parallel | chunks of 16K tokens (at most 20 per paper) independently, merged by vote in Python; a paper that fits into one chunk is sent as in F | `deepseek-v4-flash-0731` (Qwen: experiment `chunked_qwen.yaml`) |
 
 Every label needs a verbatim quote; a Python checker drops labels without one.
 Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md`
@@ -37,7 +37,7 @@ Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW
 ├── src/                    CODE
 │   ├── pdf_to_text.py        PDF -> Docling document
 │   ├── run_pipeline.py       starts a pipeline
-│   ├── pipelines/            F (full_text.py), B (from M3b on)
+│   ├── pipelines/            F (full_text.py), B (parallel.py)
 │   ├── llm_client.py         requests to SAIA: keys, limits, cache
 │   ├── verbatim_checker.py   drops labels without a verbatim quote
 │   ├── evaluation.py         scores predictions
@@ -78,6 +78,9 @@ python3 src/pdf_to_text.py --split dev     # PDF -> text, about 4.5 h; Ctrl + C,
 python3 src/run_pipeline.py full_text --split dev --dry-run   # sends nothing, expect 107 requests
 python3 src/run_pipeline.py full_text --split dev             # about 25 min, 107 requests
 ```
+
+Pipeline B: the same commands with `parallel` instead of `full_text` (dry run first: it
+prints the chunks per paper and how many papers come from F's cache), see `docs/HOW_TO_RUN.md`, section 7.
 
 ### 3. Check and score
 

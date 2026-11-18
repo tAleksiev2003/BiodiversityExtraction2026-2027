@@ -5,6 +5,7 @@ Usage (run by the team: it reads course data and, without --dry-run, sends reque
     python3 src/run_pipeline.py full_text --split dev --limit 3     # 3 documents
     python3 src/run_pipeline.py full_text --split dev
     python3 src/run_pipeline.py full_text --split dev --experiment config/experiments/no_verbatim_check.yaml
+    python3 src/run_pipeline.py parallel --split dev --dry-run      # pipeline B: chunks and requests
 
 Needs the converted documents (src/pdf_to_text.py). Writes runs/<timestamp>_<name>/ with
 config.yaml, commit.txt, llm_calls.jsonl (prompts and raw answers), documents.jsonl,
@@ -21,10 +22,11 @@ from chunking import load_tokenizer
 from llm_client import LLMClient
 from pdf_to_text import converted_dir, document_ids_for_split
 from pipelines.full_text import CALL_LOG_NAME, run_full_text
+from pipelines.parallel import run_parallel
 from runs import create_run_dir
 from settings import load_settings
 
-PIPELINES = ("full_text",)  # M3b adds "parallel"
+PIPELINES = ("full_text", "parallel")
 SPLITS = ("dev", "test")
 
 
@@ -61,9 +63,13 @@ def main() -> None:
                                                 args.limit, args.dry_run))
     print(f"Run folder: {run_dir}")
     client = LLMClient(settings, dry_run=args.dry_run, call_log_path=run_dir / CALL_LOG_NAME)
-    tokenizer = load_tokenizer(settings, max_tokens=settings["models"]["full_text_part_tokens"])
-    summary = run_full_text(settings, document_ids, client, run_dir,
-                            converted_dir(settings, args.split), tokenizer)
+    document_dir = converted_dir(settings, args.split)
+    if args.pipeline == "full_text":
+        tokenizer = load_tokenizer(settings, max_tokens=settings["models"]["full_text_part_tokens"])
+        summary = run_full_text(settings, document_ids, client, run_dir, document_dir, tokenizer)
+    else:
+        tokenizer = load_tokenizer(settings)  # cuts at chunking.max_chunk_tokens, then packing
+        summary = run_parallel(settings, document_ids, client, run_dir, document_dir, tokenizer)
     if summary["stopped"] is not None:
         sys.exit(f"STOPPED: {summary['stopped']}\nNo predictions written. Run the same "
                  "command again to continue; answered prompts come from the cache.")

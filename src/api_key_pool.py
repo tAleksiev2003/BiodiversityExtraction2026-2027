@@ -1,8 +1,11 @@
 """Several SAIA API keys, each with its own rate limiter (SPEC.md, section 5).
 
-SAIA applies its limits (10 per 10 s, 400 per hour, 800 per day) per key, so with n keys
-the team can send up to n times as many requests per day. Every key therefore has its
-own `RateLimiter` and its own server counts (x-ratelimit-remaining-* headers).
+SAIA applies its limits (10 per 10 s, 400 per hour, 800 per day) per Academic Cloud
+account, not per key: several keys of one account share one quota (measured 2026-11-18,
+SPEC.md, section 5). Only keys of n different accounts give n times as many requests per
+day. Every key has its own `RateLimiter` and its own server counts (x-ratelimit-remaining-*
+headers); for keys of one account the server counts are the shared ones, so they keep
+the pool from sending more than the account allows once each key has had an answer.
 
 Keys come from .env as SAIA_API_KEY_1, SAIA_API_KEY_2, ... (consecutive numbers). If no
 numbered key exists, the old single SAIA_API_KEY is used as key 1.

@@ -1,0 +1,7 @@
+# Pipeline B with Qwen, as run on 2026-11-18 (dev: C1 0.4527, C2b 0.2070 with k = 1).
+# Same requests as that run, so it comes from the cache: every document is sent with the
+# chunk prompt, also documents with one chunk (SPEC.md, section 13).
+models:
+  chunked: qwen3-30b-a3b-instruct-2507
+parallel:
+  one_chunk_as_full_text: false

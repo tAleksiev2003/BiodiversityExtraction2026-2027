@@ -7,8 +7,11 @@ folder `runs/<timestamp>_<name>/` with `predictions.jsonl` and `predictions.zip`
 
 | Set | Papers | Used for |
 |---|---|---|
-| `with_pdf` | ~100 with a PDF | developing and comparing our systems (default) |
-| `full` | all 900 in `dev.jsonl` | checking our scorer against the official numbers, CodaBench uploads |
+| `with_pdf` | 100 with a PDF | **the dev set**: developing and comparing our systems (default) |
+| `full` | all 900 in `dev.jsonl` | only for checking our scorer against the official baseline numbers; not for development |
+
+Only 100 dev PDFs exist; the 900 dev references on CodaBench were an error (confirmed by
+the course, SPEC.md, section 13). Nothing has to be predicted for the other 800 ids.
 
 ## 1. Once
 
@@ -61,7 +64,9 @@ the command it printed at the start, e.g.
 Needs at least one key in `.env` (copy `.env.example`): `SAIA_API_KEY_1=`,
 `SAIA_API_KEY_2=`, … numbered from 1 without gaps (1 to 4 keys). The old single
 `SAIA_API_KEY=` still works if no numbered key is set. SAIA's limits (400 per hour,
-800 per day) apply per key, so with n keys a run can send up to n × 800 requests a day.
+800 per day) apply per Academic Cloud account, not per key: several keys of one account
+share one quota. Only keys of n different accounts allow n × 800 requests a day. The
+hourly quota refills gradually, not at the full hour.
 Answers are cached in `data/processed/llm_cache/`, so the same prompt is never sent
 twice, whichever key answered it.
 
@@ -128,6 +133,51 @@ process each, about 6 GB RAM each). `--workers N` overrides the setting, `--outp
 writes into another folder (e.g. to measure the speed-up without touching the real one).
 If a worker process dies (often out of memory), the run stops with a message; converted
 documents are kept, run again with fewer workers.
+
+## 7. Pipeline B: parallel chunks (M3b)
+
+Needs the converted dev documents (section 3). Same options as pipeline F.
+
+```bash
+python3 src/run_pipeline.py parallel --split dev --dry-run     # chunks per paper, requests; sends nothing
+python3 src/run_pipeline.py parallel --split dev --limit 3     # 3 documents
+python3 src/run_pipeline.py parallel --split dev               # all dev documents with a PDF
+```
+
+Every paper is cut into chunks of `chunking.max_chunk_tokens` (16,000) tokens; a long
+paper gets larger chunks, so it has at most `chunking.max_chunks_per_document` (20)
+chunks, never larger than `models.chunked_part_tokens` (240,000). One request per chunk
+with the chunk prompt (`paths.prompt_extraction_chunked`) and `models.chunked`
+(DeepSeek, the same model as F). A paper that fits into one chunk is the full-text case:
+it sends exactly F's request (full text, prompt v2), so after a run of F its answer comes
+from the cache (`parallel.one_chunk_as_full_text`). Run the dry run first: it prints the
+chunks in total, how many papers are sent as F's request, the median and maximum chunks
+per paper and the papers with enlarged chunks, before any request is spent. The requests
+counted by the dry run do not include answers already in the cache.
+
+The run folder `runs/<timestamp>_parallel_dev[_...]/` has the same files as pipeline F;
+`documents.jsonl` also gives `chunk_count`, `chunk_tokens` (the chunk size used) and
+`full_text_request` per paper, `summary.json` the chunk numbers under `chunks`. Check `failed` and score as in
+section 5, with `runs/*_parallel_dev`.
+
+Experiments:
+
+```bash
+# merging (free: answered from the cache of the normal run)
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/merge_min_chunks_2.yaml
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/merge_min_chunks_3.yaml
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/no_verbatim_check.yaml
+# smaller chunks (new requests, about 615 on dev)
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/chunk_8k.yaml
+# the Qwen run of 2026-11-18 (from the cache: chunk prompt for every paper)
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/chunked_qwen.yaml
+```
+
+An experiment file replaces only the settings it names, and a run takes one file, so the
+merge experiments run with DeepSeek.
+
+`merge.min_chunks_per_label: k` keeps a label only if it has a verified quote in at least
+min(k, chunks of the paper) different chunks; the default 1 is the union.
 
 ## Reference numbers (C1 score)
 

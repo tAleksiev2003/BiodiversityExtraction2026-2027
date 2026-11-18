@@ -6,7 +6,7 @@ steps in order:
 1. disk cache: an answered prompt is never requested again (src/llm_cache.py);
 2. dry run: count the requests a real run would send, without sending them;
 3. key choice: with several API keys, the key with the most requests left today
-   (src/api_key_pool.py); every key has its own limits;
+   (src/api_key_pool.py); every key has its own limiter (SAIA counts per account, section 5);
 4. rate limiter of that key: wait until all windows have room (src/rate_limiter.py);
    stop only when every key has reached its daily limit;
 5. retries with exponential backoff on 429, 5xx, timeouts and connection errors;
@@ -293,7 +293,8 @@ class LLMClient:
             self._raise_if_stopped()
 
     def _make_rate_limiter(self) -> RateLimiter:
-        """A fresh limiter per key, because SAIA counts the limits per key."""
+        """A fresh limiter per key. SAIA counts per account; the server counts in each
+        answer correct a key's local count when several keys share one account."""
         return RateLimiter.from_settings(self._settings["llm"], clock=self._clock, sleep=self._sleep)
 
     def complete(self, model: str, messages: list[Message]) -> ChatResult:

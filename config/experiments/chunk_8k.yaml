@@ -1,0 +1,4 @@
+# Pipeline B with the smaller chunks of M1 (8,000 tokens; default 16,000, SPEC.md, section 13).
+# The chunks change, so the prompts change too: this run sends new requests (about 615 on dev).
+chunking:
+  max_chunk_tokens: 8000

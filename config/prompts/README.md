@@ -9,5 +9,6 @@ Answers are cached per prompt, so re-running an old version costs no requests.
 |---|---|---|---|
 | v1 | 2026-11-18 | first prompt (M3a) | C1 0.5250 / 0.5196, C2b 0.2854 / 0.3113 |
 | v2 | 2026-11-18 | main subject instead of "this study only" (R3, system line, S2, S5); field base rates from train (R4); habitat may be derived (R5); at most 10 taxa (R7) | C1 0.5680 / 0.5711, C2b 0.3302 / 0.3315 |
+| chunk_v1 | 2026-11-18 | pipeline B only (`paths.prompt_extraction_chunked`): copy of v2 without the section "ADDITION FOR PIPELINE A", plus rule R9 (one chunk only: label what THIS chunk shows, empty is normal also for habitat, R4 rates are per document) | pipeline B with Qwen, k=1: C1 0.4527, C2b 0.2070. Since 2026-11-18 papers with one chunk use v2 instead |
 
 The section 'ADDITION FOR PIPELINE A' is unused since 2026-11-18; remove it in the next prompt version.

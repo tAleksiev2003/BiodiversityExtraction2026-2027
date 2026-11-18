@@ -1,4 +1,6 @@
-"""Build the extraction prompt from the file in paths.prompt_extraction (SPEC.md, section 6).
+"""Build the extraction prompt from a template file (SPEC.md, section 6).
+
+Pipeline F uses `paths.prompt_extraction`, pipeline B `paths.prompt_extraction_chunked`.
 
 The template has sections marked by lines like `=== SYSTEM ===`. Its placeholders are
 filled here from the schema files and data/labels/, so the model sees every allowed
@@ -84,11 +86,13 @@ class ExtractionPrompt:
     user_template: str  # still contains {document_id}, {chunk_id}, {chunk_text}
 
     @classmethod
-    def from_settings(cls, settings: dict[str, Any]) -> "ExtractionPrompt":
+    def from_settings(cls, settings: dict[str, Any], template_path: Path | None = None) -> "ExtractionPrompt":
+        """`template_path`: default `paths.prompt_extraction` (pipeline F); pipeline B
+        passes `paths.prompt_extraction_chunked`. Both use the same placeholders."""
         paths = settings["paths"]
         specs = load_field_specs([paths["schema_core"], paths["schema_biodiversity"]])
         term_to_category = load_term_to_category(paths["term_to_category"])
-        sections = read_sections(paths["prompt_extraction"])
+        sections = read_sections(template_path or paths["prompt_extraction"])
         label_lists = {
             "habitat_labels": quoted(allowed(specs, "habitat")),
             "ecosystem_terms_by_category": terms_by_category(

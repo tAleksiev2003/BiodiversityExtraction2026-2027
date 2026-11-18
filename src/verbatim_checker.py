@@ -46,6 +46,9 @@ CHECK_VERBATIM_QUOTE = "C4"
 CHECK_ENOUGH_EVIDENCE = "C5"
 ALL_CHECKS = (CHECK_ALLOWED_VALUE, CHECK_CONSISTENT_PAIR, CHECK_PLAUSIBLE_QUOTE,
               CHECK_VERBATIM_QUOTE, CHECK_ENOUGH_EVIDENCE)
+# Checks run on every label of one call; the others (C5, pipeline B's chunk vote) run
+# later per document, on labels that were already counted once.
+CALL_CHECKS = (CHECK_ALLOWED_VALUE, CHECK_CONSISTENT_PAIR, CHECK_PLAUSIBLE_QUOTE, CHECK_VERBATIM_QUOTE)
 
 # Subfield names (not label values) of the fields that pair a term with a category.
 CATEGORY_SUBFIELD = "category"
@@ -312,16 +315,17 @@ def build_record(id_field: str, document_id: str, labels: list[CheckedLabel], ru
 
 # --- statistics for the run summary ---
 
-def drop_statistics(entries: list[dict[str, Any]]) -> dict[str, Any]:
+def drop_statistics(entries: list[dict[str, Any]], checks: tuple[str, ...] = ALL_CHECKS) -> dict[str, Any]:
     """Share of labels dropped per check and per field (SPEC.md, section 3a).
 
     `entries` are the log entries as dicts. Every label checked in a call has exactly one
-    entry with a check from C1 to C4; C5 entries are labels dropped later, per document.
+    entry with a check from C1 to C4; other entries (C5, pipeline B's chunk vote) are
+    labels dropped later, per document. `checks`: the checks to report.
     """
     checked_per_field: Counter = Counter()
     dropped: dict[str, Counter] = defaultdict(Counter)  # field -> check -> count
     for entry in entries:
-        if entry["check"] != CHECK_ENOUGH_EVIDENCE:
+        if entry["check"] in CALL_CHECKS:
             checked_per_field[entry["field"]] += 1
         if not entry["passed"]:
             dropped[entry["field"]][entry["check"]] += 1
@@ -331,9 +335,9 @@ def drop_statistics(entries: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "checked": checked,
             "kept": checked - total_dropped,
-            "dropped": {check: dropped_counts.get(check, 0) for check in ALL_CHECKS},
+            "dropped": {check: dropped_counts.get(check, 0) for check in checks},
             "dropped_share": {
-                check: (dropped_counts.get(check, 0) / checked if checked else 0.0) for check in ALL_CHECKS
+                check: (dropped_counts.get(check, 0) / checked if checked else 0.0) for check in checks
             },
         }
 
