@@ -15,7 +15,7 @@ requests per dev run). B stays in the code and reproducible, but is no longer de
 Prompt v4 shows, for each paper, how the database labelled its most similar training
 papers (TF-IDF on the first pages of the PDFs), so the model sees the database's conventions.
 Every label needs a verbatim quote; a Python checker drops labels without one.
-Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md`
+Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md` · All experiments: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)
 
 ## Repository Structure
 
@@ -121,6 +121,8 @@ received answers come from the cache.
 Baselines, experiments and more: `docs/HOW_TO_RUN.md`.
 
 ## Results (dev, 100 papers)
+
+All experiments with their results and what we learned: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)
 
 | Pipeline | C1 | C2b |
 |---|---|---|
