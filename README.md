@@ -8,8 +8,9 @@ We compare two ways to feed long documents to an LLM:
 | Pipeline | Idea | Model |
 |---|---|---|
 | **F** full text | whole document, one call | `deepseek-v4-flash-0731` |
-| **B** parallel | chunks of 16K tokens (at most 20 per paper) independently, merged by vote in Python; a paper that fits into one chunk is sent as in F | `deepseek-v4-flash-0731` (Qwen: experiment `chunked_qwen.yaml`) |
+| **B** parallel | chunks of 16,000 tokens, at most 4 per paper (longer papers get larger chunks), each in its own call, merged in Python | `deepseek-v4-flash-0731` (same as F) |
 
+A paper that fits into one chunk is sent exactly like in F, so its answer comes from F's cache.
 Every label needs a verbatim quote; a Python checker drops labels without one.
 Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md`
 
@@ -37,7 +38,8 @@ Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW
 ├── src/                    CODE
 │   ├── pdf_to_text.py        PDF -> Docling document
 │   ├── run_pipeline.py       starts a pipeline
-│   ├── pipelines/            F (full_text.py), B (parallel.py)
+│   ├── pipelines/            full_text.py (F), parallel.py (B)
+│   ├── chunk_packing.py      packs the chunks of a paper (B: at most 4)
 │   ├── llm_client.py         requests to SAIA: keys, limits, cache
 │   ├── verbatim_checker.py   drops labels without a verbatim quote
 │   ├── evaluation.py         scores predictions
@@ -72,35 +74,56 @@ python3 src/llm_client.py check-keys       # expect: every key OK
 python3 src/pdf_to_text.py --split dev     # PDF -> text, about 4.5 h; Ctrl + C, rerun continues
 ```
 
-### 2. Run pipeline F
+### 2. Run a pipeline
+
+F (run it first):
 
 ```bash
 python3 src/run_pipeline.py full_text --split dev --dry-run   # sends nothing, expect 107 requests
 python3 src/run_pipeline.py full_text --split dev             # about 25 min, 107 requests
 ```
 
-Pipeline B: the same commands with `parallel` instead of `full_text` (dry run first: it
-prints the chunks per paper and how many papers come from F's cache), see `docs/HOW_TO_RUN.md`, section 7.
-
-### 3. Check and score
+B, best setting (at most 4 chunks per paper):
 
 ```bash
-LATEST=$(ls -td runs/*_full_text_dev | head -1)
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/max_4_chunks.yaml --dry-run
+python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/max_4_chunks.yaml
+```
+
+About 255 requests on dev, about 220 if F ran first (one-chunk papers come from F's
+cache). More on B: `docs/HOW_TO_RUN.md`, section 7.
+
+### 3. Check and score a run
+
+```bash
+LATEST=$(ls -td runs/*_full_text_dev | head -1)                 # F
+LATEST=$(ls -td runs/*_parallel_dev_max_4_chunks | head -1)     # or B
 python3 -c "import json; print('failed:', list(json.load(open('$LATEST/summary.json'))['failed']))"
 python3 src/evaluation.py score --references data/processed/dev_with_pdf.jsonl \
     --predictions "$LATEST/predictions.jsonl" --task all --categorical-only \
     --output "$LATEST/scores.json"
 ```
 
-Expect `failed: []`, then **C1 ≈ 0.571, C2b ≈ 0.332** (most-frequent baseline: C1 0.2055).
-If `failed` is not empty, run step 2 again: received answers come from the cache.
+Expect `failed: []` and the scores below. If `failed` is not empty, run step 2 again:
+received answers come from the cache.
 
 Baselines, experiments and more: `docs/HOW_TO_RUN.md`.
+
+## Results (dev, 100 papers)
+
+| Pipeline | C1 | C2b |
+|---|---|---|
+| F (full text, prompt v2) | 0.5710 | 0.3310 |
+| B (at most 4 chunks) | 0.5872 | 0.3311 |
+| most-frequent baseline | 0.2055 | – |
+
+Checker settings: `min_quote_words` 3, `max_quote_words` 60; details in `SPEC.md`, section 13.
 
 ## Quick Shutdown
 
 `Ctrl + C` stops a run. LLM answers are cached, so the same command continues later
-without new requests. `deactivate` leaves the virtual environment.
+without new requests. A run stopped by `Ctrl + C` writes no `predictions.jsonl`; run the
+same command again, answers come from the cache. `deactivate` leaves the virtual environment.
 
 ## Input and Output
 

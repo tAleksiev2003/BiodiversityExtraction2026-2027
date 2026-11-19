@@ -1,6 +1,6 @@
 # Pipeline B with at most 4 chunks per paper (default 20), as in the colleague's best chunked
 # system (C1 0.5622 with DeepSeek). Longer papers get larger chunks (up to chunked_part_tokens).
-# Changes the chunks of papers over 64,000 tokens, so those need new requests (about 210 on dev);
+# Changes the chunks of papers over 64,000 tokens, so those need new requests (220 on dev, measured by the dry run of 2026-11-19);
 # one-chunk papers still come from F's cache.
 chunking:
   max_chunks_per_document: 4
