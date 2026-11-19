@@ -1,0 +1,5 @@
+# Checker tuning for pipeline B with at most 4 chunks (free): quotes may be as short as 2 word(s) (default 5).
+chunking:
+  max_chunks_per_document: 4
+verbatim_check:
+  min_quote_words: 2

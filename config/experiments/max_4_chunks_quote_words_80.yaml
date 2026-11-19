@@ -1,0 +1,6 @@
+# Checker tuning for pipeline B with at most 4 chunks (free: same answers, filtered differently).
+# Combines max_4_chunks.yaml with max_quote_words 80 (default 60).
+chunking:
+  max_chunks_per_document: 4
+verbatim_check:
+  max_quote_words: 80

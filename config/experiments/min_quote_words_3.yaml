@@ -1,0 +1,3 @@
+# Checker tuning (free): quotes may be as short as 3 word(s) (default 5), e.g. a taxon name.
+verbatim_check:
+  min_quote_words: 3

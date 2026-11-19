@@ -70,7 +70,7 @@ statistics:
 verbatim_check:
   enabled: true                             # false = ablation without the checker
   quote_match_threshold: 90                 # 0-100, rapidfuzz partial_ratio
-  min_quote_words: 5
+  min_quote_words: 3                        # 2026-11-19: 3 beats 5 for B (C1 +0.009, C2b +0.013), F unchanged; 1 lets false labels through (SPEC.md, section 13)
   max_quote_words: 60                       # 2026-11-18: with prompt v2, 60 is at least as good as 40 for C1 and C2b (SPEC.md, section 13)
   min_verified_quotes: 1
 

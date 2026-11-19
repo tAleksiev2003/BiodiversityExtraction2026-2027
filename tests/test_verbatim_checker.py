@@ -140,12 +140,13 @@ def test_c2_service_term_without_mapping_is_dropped_and_logged(rules, config, sp
 
 
 TOO_LONG_QUOTE = "<max_quote_words + 1 words>"  # built in the test: the limit comes from settings.yaml
+TOO_SHORT_QUOTE = "<min_quote_words - 1 words>"  # built in the test: the limit comes from settings.yaml
 
 
 @pytest.mark.parametrize("quote, reason", [
     (None, "no quote"),
     ("   ", "no quote"),
-    ("ground beetles with traps", "fewer than"),            # 4 words < min_quote_words (5)
+    (TOO_SHORT_QUOTE, "fewer than"),                        # < min_quote_words
     (TOO_LONG_QUOTE, "more than"),                          # > max_quote_words
     ("We sampled ground beetles ... twelve hedgerows", "ellipsis"),
     ("We sampled ground beetles … twelve hedgerows", "ellipsis"),
@@ -153,6 +154,10 @@ TOO_LONG_QUOTE = "<max_quote_words + 1 words>"  # built in the test: the limit c
 def test_c3_implausible_quotes(rules, config, enum, quote, reason) -> None:
     if quote == TOO_LONG_QUOTE:
         quote = " ".join(["word"] * (config.max_quote_words + 1))
+    if quote == TOO_SHORT_QUOTE:
+        if config.min_quote_words < 2:
+            pytest.skip("min_quote_words below 2: no quote is too short except an empty one")
+        quote = " ".join(["word"] * (config.min_quote_words - 1))
     kept, log = check([label("habitat", quote, value=enum("habitat", 0))], rules, config)
     assert kept == []
     assert only_entry(log).check == CHECK_PLAUSIBLE_QUOTE
