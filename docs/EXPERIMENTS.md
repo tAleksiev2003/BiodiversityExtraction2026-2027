@@ -30,9 +30,6 @@ Prompt versions: `config/prompts/README.md`.
 | 9 | 11-19 | **F, prompt v4, DeepSeek 4.1** | newer model | **0.6644** | **0.3733** | `20261119-140809_full_text_dev_model_deepseek_v41` |
 | 10 | 11-19 | #9 + verifier | second call per paper, keep/drop only | 0.6524 | 0.3603 | `20261119-151706_verify_dev` |
 
-For comparison, the colleague's best systems on the same 100 papers: RAG-anchored sections
-(DeepSeek 4.1, TF-IDF kNN k=2) C1 0.5798; cross-architecture voting ensemble C1 0.5785;
-best classical model (TF-IDF + linear SVM) C1 0.4897.
 
 ---
 
