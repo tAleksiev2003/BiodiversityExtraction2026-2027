@@ -4,6 +4,11 @@ The answer is parsed and validated with pydantic. Only the shape is checked here
 object with a list of labels, each with a "field" and string values). Whether a value
 is allowed and whether its quote is in the text is the job of the verbatim checker.
 
+`confidence` (prompt v5 and the field prompts, e.g. level_v1): the model's probability that
+the database gives the document this label. It is optional for every prompt; a missing or
+invalid value (not a number, outside 0..1) becomes None and never drops the label, because
+the label itself may still be right.
+
 Invalid answer: the same prompt is sent once more with the model's answer and the parse
 error appended (config/prompts/retry_invalid_json.txt). If that fails too, the call is
 logged and treated as empty. A dry-run answer is always empty and never retried: there
@@ -11,12 +16,13 @@ is nothing to parse yet.
 """
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from llm_cache import Message
 from llm_client import SOURCE_API, SOURCE_DRY_RUN, LLMClient
@@ -32,6 +38,20 @@ STATUS_OK_AFTER_RETRY = "ok_after_retry"
 STATUS_INVALID = "invalid_json"   # also invalid after the retry: treated as empty
 STATUS_DRY_RUN = "dry_run"        # no answer yet: treated as empty
 
+MIN_CONFIDENCE = 0.0
+MAX_CONFIDENCE = 1.0
+
+
+def parse_confidence(raw: Any) -> float | None:
+    """A JSON number from 0 to 1, else None. Strings (also "0.8") count as invalid: the
+    prompts ask for a number, and a quoted value suggests the model did not follow them."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    value = float(raw)
+    if math.isnan(value) or not MIN_CONFIDENCE <= value <= MAX_CONFIDENCE:
+        return None
+    return value
+
 
 class ExtractedLabel(BaseModel):
     """One label as the model wrote it; which attributes are used depends on `field`."""
@@ -46,7 +66,14 @@ class ExtractedLabel(BaseModel):
     scientific_name: str | None = None   # taxa
     german_name: str | None = None       # taxa
     name_source: str | None = None       # taxa: "text" or "completed" (rule R7)
+    confidence: float | None = None      # optional, 0..1 (prompt v5 rule R9, level_v1 rule L4)
     quote: str | None = None
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def invalid_confidence_is_none(cls, raw: Any) -> float | None:
+        """Never a validation error: a bad confidence must not make the whole answer invalid."""
+        return parse_confidence(raw)
 
 
 class ExtractionAnswer(BaseModel):

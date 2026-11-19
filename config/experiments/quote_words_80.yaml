@@ -8,3 +8,7 @@ models:
 verbatim_check:
   min_quote_words: 5
   max_quote_words: 80
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

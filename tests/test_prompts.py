@@ -186,5 +186,6 @@ def test_earlier_f_runs_keep_their_prompt_and_model(settings, experiment, prompt
     assert pinned["models"]["full_text"] == DEEPSEEK_40 != settings["models"]["full_text"]
 
 
-def test_deepseek_41_experiment_equals_the_default(settings):
-    assert load_settings(REPO_ROOT / "config" / "experiments" / "model_deepseek_v41.yaml") == settings
+def test_deepseek_41_experiment_equals_the_default_without_the_level_prompt(settings):
+    without_level_prompt = load_settings(REPO_ROOT / "config" / "experiments" / "no_level_prompt.yaml")
+    assert load_settings(REPO_ROOT / "config" / "experiments" / "model_deepseek_v41.yaml") == without_level_prompt

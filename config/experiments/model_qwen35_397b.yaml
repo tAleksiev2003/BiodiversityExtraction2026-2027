@@ -6,3 +6,7 @@ models:
   full_text_part_tokens: 230000
 paths:
   prompt_extraction: config/prompts/extraction_v4.txt
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

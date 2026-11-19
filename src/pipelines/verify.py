@@ -34,8 +34,9 @@ from llm_client import LLMClient, describe_error
 from output import PREDICTIONS_FILENAME, drop_unscored_subfields, write_predictions
 from parallel_runner import run_in_parallel
 from pdf_to_text import DOCUMENT_SUFFIX, load_document
-from postprocessing import drop_services_without_neighbour_support
-from pipelines.full_text import STOP_ERRORS, SUMMARY_NAME, FullTextPipeline, append_jsonl, part_call
+from postprocessing import postprocess
+from pipelines.full_text import (
+    STOP_ERRORS, SUMMARY_NAME, FullTextPipeline, append_jsonl, field_prompt_paths, part_call)
 from runs import load_run_settings
 from verbatim_checker import CheckedLabel, build_record, merge_labels
 from verification import (
@@ -157,9 +158,8 @@ class VerifyPipeline:
             labels_per_part.append(checked)
         all_labels = [label for part_labels in labels_per_part for label in part_labels]
         kept, _ = merge_labels(all_labels, self.source_pipeline.checker_config, document_id)
-        # The source run's post-processing, so dropped services are no candidates either.
-        kept = drop_services_without_neighbour_support(
-            {document_id: kept}, self.source_examples, self.source.settings)[0][document_id]
+        # The source run's post-processing, so labels it dropped are no candidates either.
+        kept = postprocess({document_id: kept}, self.source_examples, self.source.settings).labels_by_document[document_id]
         rebuilt = drop_unscored_subfields(build_record(ID_FIELD, document_id, kept, self.source_pipeline.rules))
         if rebuilt != self.source.predictions[document_id]:
             raise SourceNotRebuiltError("the labels rebuilt from the cache differ from the source predictions")
@@ -270,6 +270,10 @@ def run_verify(
     (written as documents finish), summary.json, and unless stopped or a dry run
     predictions.jsonl + zip.
     """
+    if field_prompt_paths(source.settings):
+        # The rebuild below repeats only the main calls; the verifier was rejected (SPEC.md,
+        # section 13), so it was not extended to field prompts.
+        raise ValueError(f"the source run {source.run_dir.name} used field prompts, which the verifier does not support")
     write_sources(run_dir, source, settings)
     source_client = LLMClient(source.settings, dry_run=True)  # cache only: never sends
     source_pipeline = FullTextPipeline(source.settings, source_client, document_dir, tokenizer, source_examples)

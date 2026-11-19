@@ -1,0 +1,6 @@
+# Field prompt for biodiversity_level (decomposed prompting, Khot et al. 2023): after the main
+# extraction, one more call per part with config/prompts/level_v1.txt; its levels replace the
+# main call's levels. The main call is unchanged, so only the level calls are new requests
+# (about one per paper). Pipeline F only.
+field_prompts:
+  biodiversity_level: config/prompts/level_v1.txt

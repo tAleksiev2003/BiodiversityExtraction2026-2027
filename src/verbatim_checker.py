@@ -28,7 +28,7 @@ import logging
 import re
 import unicodedata
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from rapidfuzz import fuzz
@@ -141,6 +141,7 @@ class CheckedLabel:
     entry: LabelEntry
     normalised_quote: str | None
     quote: str | None = None      # as the model wrote it; shown to the verifier (src/verification.py)
+    confidence: float | None = None  # the model's probability (0..1) if the prompt asks for one
 
 
 @dataclass(frozen=True)
@@ -261,7 +262,7 @@ def check_answer(
         try:
             entry, key = check_allowed_value(label, rules)
             if not config.enabled:
-                kept.append(CheckedLabel(label.field, key, entry, None))
+                kept.append(CheckedLabel(label.field, key, entry, None, confidence=label.confidence))
                 log.append(CheckLogEntry(document_id, call, label.field, label_dict, CHECK_ALLOWED_VALUE,
                                          True, None, "checker disabled: only C1"))
                 continue
@@ -272,7 +273,7 @@ def check_answer(
             log.append(CheckLogEntry(document_id, call, label.field, label_dict, dropped.check,
                                      False, dropped.score, dropped.reason))
             continue
-        kept.append(CheckedLabel(label.field, key, entry, normalised_quote, quote))
+        kept.append(CheckedLabel(label.field, key, entry, normalised_quote, quote, label.confidence))
         log.append(CheckLogEntry(document_id, call, label.field, label_dict, CHECK_VERBATIM_QUOTE,
                                  True, score, "quote found in the text"))
     return kept, log
@@ -287,6 +288,8 @@ def merge_labels(
 
     Quotes are counted per document over all calls (parts), and the same quote given
     twice counts once. A call that does not mention a label is not a vote against it.
+    The kept label gets the highest confidence of its group (None if no call gave one):
+    like a quote, the strongest part decides.
     """
     groups: dict[tuple[str | None, ...], list[CheckedLabel]] = defaultdict(list)
     for label in labels:
@@ -302,7 +305,8 @@ def merge_labels(
                     log.append(CheckLogEntry(document_id, "all", label.field, {"entry": label.entry},
                                              CHECK_ENOUGH_EVIDENCE, False, None, reason))
                 continue
-        kept.append(group[0])
+        confidences = [label.confidence for label in group if label.confidence is not None]
+        kept.append(replace(group[0], confidence=max(confidences) if confidences else None))
     return kept, log
 
 

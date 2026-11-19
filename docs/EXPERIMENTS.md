@@ -6,9 +6,11 @@ PDF** (`data/processed/dev_with_pdf.jsonl`), scored with `src/evaluation.py`
 (`--categorical-only`). Decisions and their reasons: `SPEC.md`, section 13.
 Prompt versions: `config/prompts/README.md`.
 
-**Current best:** pipeline F, prompt v4 (training examples), DeepSeek 4.1, plus the
-post-processing rule on services (section 10): **C1 0.6644, C2b 0.4130**
-(`runs/20261119-154747_full_text_dev`).
+**Current best (the defaults):** pipeline F, prompt v4 (training examples), DeepSeek 4.1,
+the post-processing rule on services (section 10) and the field prompt level_v1 for
+biodiversity_level (section 11): **C1 0.6732, C2b 0.4202**
+(`runs/20261119-161424_full_text_dev_level_prompt_v1`). **Not robust:** better than without
+the level prompt in only 73 % of bootstrap samples.
 
 > Dev scores are slightly optimistic: prompt, checker settings and model were all chosen on
 > these 100 papers. Expect a few hundredths less on the test set.
@@ -30,7 +32,9 @@ post-processing rule on services (section 10): **C1 0.6644, C2b 0.4130**
 | 8 | 11-19 | F, prompt v4, DeepSeek 4.0 | v2 + examples of the 3 most similar training papers | 0.5836 | 0.3602 | `20261119-134529_full_text_dev_prompt_v4` |
 | 9 | 11-19 | F, prompt v4, DeepSeek 4.1 | newer model | 0.6644 | 0.3733 | `20261119-140809_full_text_dev_model_deepseek_v41` |
 | 10 | 11-19 | #9 + verifier | second call per paper, keep/drop only | 0.6524 | 0.3603 | `20261119-151706_verify_dev` |
-| 11 | 11-19 | **#9 + service rule** | drop services if no training neighbour has any (section 10) | **0.6644** | **0.4130** | `20261119-154747_full_text_dev` |
+| 11 | 11-19 | #9 + service rule | drop services if no training neighbour has any (section 10) | 0.6644 | 0.4130 | `20261119-154747_full_text_dev` |
+| 12 | 11-19 | **#11 + level prompt v1** | one extra call per part for biodiversity_level (section 11); not robust (bootstrap 73 %) | **0.6732** | **0.4202** | `20261119-161424_full_text_dev_level_prompt_v1` |
+| 13 | 11-19 | #11 with prompt v5 | confidence per label (section 12); without threshold / cross-validated threshold | 0.6234 / 0.6133 | 0.4181 / 0.4515 | `20261119-162000_full_text_dev_prompt_v5` |
 
 
 ---
@@ -208,7 +212,77 @@ ones; better in 99.8 % of 2,000 bootstrap samples. The pattern holds on train, s
 property of the database, not of the dev set. The dev gain is probably optimistic (dev 1 of
 64 vs train 6.7 %). **Adopted.**
 
-## 11. Infrastructure
+## 11. Field prompt for biodiversity_level (decomposed prompting)
+
+`config/prompts/level_v1.txt` (after Khot et al. 2023): after the main call, one more call per
+part only for biodiversity_level, with a description and base rate per level and a confidence
+per label. Its levels replace the main call's; a failed call keeps them. On F v4.1 + service
+rule (#11):
+
+| | C1 | C2b | level F1 | level TP / FP / FN | recall | precision |
+|---|---|---|---|---|---|---|
+| without (#11, `no_level_prompt.yaml`) | 0.6644 | 0.4130 | 0.412 | 28 / 41 / 39 | 0.42 | 0.41 |
+| with level_v1 (#12) | **0.6732** | **0.4202** | **0.455** | 46 / 89 / 21 | 0.69 | 0.34 |
+
+All other fields unchanged. Newly found: Habitatdiversität 5 TP (was 1), Genetische Diversität
+4 TP (was 0). Better in 73 % of 2,000 bootstrap samples (over the 100 papers): **not robust**.
+Confidence thresholds (`sweep_confidence.py`): no threshold 0.6732 / 0.4202, theory the same,
+cross-validated 0.6666 / 0.4148, so no threshold.
+
+**Finding: the level confidences are overconfident and barely separate right from wrong**
+(cf. Xiong et al., ICLR 2024):
+
+| confidence | 0.2–0.4 | 0.4–0.6 | 0.6–0.8 | 0.8–1.0 |
+|---|---|---|---|---|
+| right / kept labels | 3 / 11 | 3 / 12 | 5 / 25 | 35 / 87 |
+
+**Decision: adopted as default, not robust (bootstrap 73 %).** Reasons: (1) the direction was
+predicted beforehand: for a field with F1 about 0.41 a label pays off if P(right) > F1/2 ≈ 0.21
+(Lipton et al. 2014), so more recall should help; the verifier, which dropped levels, had
+lowered the field to 0.358. (2) Train has a level in 58 % of papers, dev in 41 %; on a test
+set like train more recall should help more (hypothesis, medium confidence).
+**Cost:** one extra call per part, about twice the requests of F (dev about 214 instead of 107;
+test with 500 papers about 1,080 instead of 540).
+
+## 12. Verbalized confidence (prompt v5)
+
+`config/prompts/extraction_v5.txt` = v4 plus a `"confidence"` per label (rule R9, after Tian et
+al. 2023); thresholds per field chosen with `src/scripts/sweep_confidence.py` (F1/2 "theory",
+Lipton et al. 2014, and 5-fold cross-validation). On top of #11:
+
+| v5 | C1 | C2b |
+|---|---|---|
+| no threshold | 0.6234 | 0.4181 |
+| theory (F1 at 0 / 2) | 0.6214 | 0.4181 |
+| cross-validated, out of fold | 0.6133 | 0.4515 |
+
+| field F1 | v4 + service rule (#11) | v5, no threshold |
+|---|---|---|
+| habitat | 0.821 (TP 103) | 0.784 (TP 98) |
+| biodiversity_level | 0.412 | 0.384 |
+| ecosystem_type.category | 0.722 | 0.654 |
+| ecosystem_type.term | 0.661 | 0.600 |
+| taxa.species_group | 0.707 | 0.695 |
+| taxa.scientific_name | 0.331 | 0.351 |
+| taxa.german_name | 0.331 | 0.388 |
+
+**Finding: these confidences do separate right from wrong** (unlike level_v1), right / kept
+labels:
+
+| confidence | 0.4–0.6 | 0.6–0.8 | 0.8–0.9 | 0.9–1.0 |
+|---|---|---|---|---|
+| habitat | 6 / 8 | 10 / 16 | 3 / 4 | 77 / 82 |
+| biodiversity_level | 1 / 14 | 9 / 35 | 9 / 19 | 9 / 14 |
+| ecosystem_type | 5 / 15 | 4 / 9 | 19 / 27 | 11 / 15 |
+| taxa | 7 / 15 | 25 / 47 | 32 / 51 | 69 / 81 |
+
+But R9 also made the model more liberal and it lost correct labels (habitat −5 TP); a
+threshold removes wrong labels but cannot bring back lost ones. Taxa names from v5 combined
+with #12: C2b 0.4308 but C1 0.6706, and two main calls per paper: not used.
+**Decision: rejected.** Lesson: R9 changed two things at once (confidence and more liberal
+answers). `postprocess.min_confidence`, `labels_with_confidence.jsonl` and the sweep script stay.
+
+## 13. Infrastructure
 
 | Finding | Consequence |
 |---|---|
@@ -218,7 +292,7 @@ property of the database, not of the dev set. The dev gain is probably optimisti
 | 2 Docling workers were not faster than 1 (500 s vs 508 s on 5 papers) | default 1 worker; converting 500 test PDFs takes about 21 h |
 | Qwen3-30B timed out on 240K-token chunks; DeepSeek handled 900K-token parts | – |
 
-## 12. Open
+## 14. Open
 
 - Retry qwen3.5-397b-a17b and glm-5.3-flash (`config/experiments/model_*.yaml`).
 - Test phase: Docling conversion, first pages and neighbours for the 500 test papers.

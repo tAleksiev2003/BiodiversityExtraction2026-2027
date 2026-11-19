@@ -5,3 +5,7 @@ paths:
   prompt_extraction: config/prompts/extraction_v4.txt
 models:
   full_text: deepseek-v4-flash-0731
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

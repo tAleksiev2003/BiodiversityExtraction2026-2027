@@ -10,3 +10,7 @@ models:
 chunking:
   max_chunk_tokens: 8000
   max_chunks_per_document: 4
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

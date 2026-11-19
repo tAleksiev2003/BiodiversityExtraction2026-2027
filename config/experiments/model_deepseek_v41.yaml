@@ -1,7 +1,12 @@
 # Pipeline F with DeepSeek 4.1 and prompt v4 (2026-11-19: C1 0.6644, C2b 0.3733).
-# Since 2026-11-19 this EQUALS THE DEFAULT (settings.yaml), so this file changes nothing; it is
-# kept so the commands and run names of 2026-11-19 still work. Context assumed 1M like 4.0.
+# Equals the default except for the level prompt (default since 2026-11-19, switched off below);
+# kept so the commands and run names of 2026-11-19 still work. The service rule (default since
+# 2026-11-19) applies: C2b 0.4130; without it: no_service_rule.yaml. Context assumed 1M like 4.0.
 models:
   full_text: deepseek-v4.1-flash-1017
 paths:
   prompt_extraction: config/prompts/extraction_v4.txt
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

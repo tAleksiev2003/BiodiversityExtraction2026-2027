@@ -223,6 +223,9 @@ def unsupported_settings(settings: dict[str, Any]) -> str | None:
     B never fills `{examples}`: its one-chunk papers send F's prompt, which is v4 by
     default, and examples for chunks were never built (B is no longer developed).
     """
+    if any(settings.get("field_prompts", {}).values()) or settings.get("postprocess", {}).get("min_confidence"):
+        return ("field_prompts and postprocess.min_confidence are pipeline F only; B is no longer developed "
+                f"(SPEC.md, section 13, 2026-11-19). Run B with --experiment {PROMPT_V2_EXPERIMENT}.")
     paths = settings["paths"]
     for template_path in (paths["prompt_extraction"], paths["prompt_extraction_chunked"]):
         if ExtractionPrompt.from_settings(settings, template_path).uses_examples:

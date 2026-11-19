@@ -12,3 +12,7 @@ chunking:
   max_chunks_per_document: 4
 merge:
   min_chunks_per_label: 3
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

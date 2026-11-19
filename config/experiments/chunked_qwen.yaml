@@ -13,3 +13,7 @@ parallel:
   one_chunk_as_full_text: false
 verbatim_check:
   min_quote_words: 5
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

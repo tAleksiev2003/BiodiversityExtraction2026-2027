@@ -10,3 +10,7 @@ models:
   chunked: deepseek-v4-flash-0731
 chunking:
   max_chunks_per_document: 4
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

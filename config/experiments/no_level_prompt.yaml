@@ -1,0 +1,5 @@
+# Pipeline F without the field prompt for biodiversity_level (the default since 2026-11-19):
+# the levels come from the main call, as in F v4.1 + service rule (C1 0.6644, C2b 0.4130).
+# All answers are in the cache, so a run with this file sends no request.
+field_prompts:
+  biodiversity_level: null

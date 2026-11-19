@@ -84,9 +84,16 @@ parallel:
 merge:
   min_chunks_per_label: 1                   # pipeline B: a label needs a verified quote in at least min(this, chunks of the document) chunks; 1 = union
 
+field_prompts:
+  # Pipeline F: one more call per part for a field with its own prompt; its labels replace the main
+  # call's labels of that field (decomposed prompting, Khot et al. 2023). The main call is unchanged
+  # (it comes from the cache). Path relative to the repository root; null = off.
+  biodiversity_level: config/prompts/level_v1.txt   # default since 2026-11-19: C1 0.6644 -> 0.6732, C2b 0.4130 -> 0.4202 (level F1 0.412 -> 0.455), not robust (bootstrap 73 %); about twice the requests of F (one extra call per part). Off: config/experiments/no_level_prompt.yaml (SPEC.md, section 13)
+
 postprocess:
   # Pipeline F, after the verbatim checker, before the predictions are written (src/postprocessing.py).
-  # Only drops labels; needs no request, so false (config/experiments/no_service_rule.yaml) comes from the cache.
+  # Only drops labels; needs no request, so a run with other values comes from the cache.
+  min_confidence: {}                        # {field: threshold}, e.g. {biodiversity_level: 0.4}; drops labels whose confidence (prompt v5, field prompts) is lower; a label without confidence is kept; {} = off. Choose with src/scripts/sweep_confidence.py
   drop_services_without_neighbour_support: true   # 2026-11-19: drop all ecosystem_service labels of a paper if none of its retrieval.k train neighbours has one; a paper without neighbours keeps them. F v4.1: C2b 0.3733 -> 0.4130, C1 unchanged (SPEC.md, section 13). Needs a prompt with training examples (v4)
 
 prompt:

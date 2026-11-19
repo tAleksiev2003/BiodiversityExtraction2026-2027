@@ -180,6 +180,10 @@ def invented_settings(
     copied["paths"]["cache"] = tmp_path / "cache"
     copied["paths"]["docling"] = tmp_path / "docling"
     copied["paths"]["runs"] = tmp_path / "runs"
+    # The level prompt is on by default (2026-11-19). The invented fake APIs answer only the
+    # main prompt, so the tests of the main calls run without it; test_field_prompts.py
+    # switches it on and checks the default.
+    copied["field_prompts"] = {field: None for field in copied["field_prompts"]}
     write_invented_neighbours(copied, tmp_path, enum)
     return copied
 

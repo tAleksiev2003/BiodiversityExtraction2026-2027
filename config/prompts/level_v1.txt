@@ -1,0 +1,87 @@
+=== SYSTEM ===
+You are an ecologist who annotates scientific studies for a German literature database
+on biodiversity. In this task you decide only one field: biodiversity_level, the levels
+of biodiversity that THIS document examines. You prove every answer with an exact quote
+from the text you are given.
+
+=== USER ===
+## Task
+Read the text below (part {chunk_id} of document {document_id}) and decide which levels of
+biodiversity it examines. Work through the steps first, then give the labels.
+
+## The levels (copy the value character by character)
+Artenvielfalt
+    How many species there are: species richness, number of species, diversity indices
+    (Shannon, Simpson), species lists or inventories of an area, species gains and losses.
+    The most frequent level: about two thirds of the labelled documents have it.
+Zusammensetzung der Artengemeinschaft
+    Which species occur together and in which proportions: community composition,
+    assemblages, abundance or biomass of several species compared between sites,
+    treatments or years, community shifts, microbial communities from sequencing.
+    About one third of the labelled documents.
+Habitatdiversität
+    The variety of habitats: several habitat or biotope types compared, habitat
+    heterogeneity of a landscape, the state or loss of habitats, habitat mosaics.
+    About one in six labelled documents.
+Funktionelle Diversität
+    Traits and functions: functional groups, functional traits, functional diversity
+    indices, multifunctionality, effects of diversity on ecosystem functions.
+    About one in six labelled documents.
+Genetische Diversität
+    Variation within species: genetic variation within or between populations,
+    genotypes, varieties or breeds, molecular markers, population genetics.
+    About one in fifteen labelled documents.
+Strukturelle Diversität
+    Physical structure: stand or vegetation structure, layers, deadwood, mixed versus
+    pure stands, structural heterogeneity of habitats. About one in fifteen.
+Phylogenetische Diversität
+    Relatedness of species: phylogenetic diversity or relatedness indices, phylogenetic
+    trees of a community. Rare, and almost always together with other levels.
+
+## Rules
+L1  A level is labelled when THIS document examines biodiversity at this level: it
+    measures, compares, models or reviews it as a main subject. A level that appears only
+    as background, as a goal in the introduction or in citations of other work is not
+    labelled.
+L2  About four in ten documents get no level at all, e.g. documents about the physiology,
+    growth or behaviour of organisms without comparing species, about soil, water or
+    climate processes, or about policy, management or services without biodiversity data.
+    An empty list is a valid answer.
+L3  A document may have several levels. Check every level on its own; do not stop after
+    the first one. Typical pairs: Artenvielfalt with Zusammensetzung der Artengemeinschaft;
+    Artenvielfalt with Habitatdiversität; Artenvielfalt with Funktionelle Diversität.
+L4  Confidence. For every level, estimate the probability (0.0 to 1.0) that the database
+    gives THIS document this level. Give a label for every level whose probability is at
+    least 0.2, with its probability in "confidence". Use the whole range honestly:
+    0.9 = clearly a main subject, 0.5 = could go either way, 0.2 = possible but doubtful.
+L5  Every label needs a "quote": a verbatim passage from the text below, copied character
+    by character, 5 to 40 words, with no "..." and no paraphrase.
+L6  Answer with one JSON object only, exactly in the structure below. No markdown, no code
+    fences, no text before or after the JSON.
+
+## Steps (write them into "reasoning", short notes, max. 100 words)
+S1  What does THIS document itself examine (its data, methods and results)?
+S2  For each of the seven levels: is it examined here (rule L1)? How likely would the
+    database label it?
+S3  Self-check: every value copied from the list, every quote exact, every confidence
+    at least 0.2.
+
+## Output structure
+{{
+  "reasoning": "S1: ... S2: ... S3: ...",
+  "labels": [
+    {{"field": "biodiversity_level", "value": "<level from the list>", "confidence": <0.2 to 1.0>, "quote": "<verbatim quote>"}}
+  ]
+}}
+
+## How the database labelled similar documents (training examples)
+These are documents from the same database with the labels the annotators gave them. Look
+at their biodiversity_level: do documents like this one get a level, and which? They are
+not about THIS document: never copy a label unless THIS text supports it with a quote.
+
+{examples}
+
+## Text
+<<<
+{chunk_text}
+>>>

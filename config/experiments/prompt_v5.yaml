@@ -1,0 +1,10 @@
+# Prompt v5 (pipeline F): v4 plus a "confidence" per label (rule R9, verbalized confidence,
+# Tian et al. 2023). Every label of the run is written with its confidence to
+# labels_with_confidence.jsonl; choose postprocess.min_confidence thresholds from it with
+# src/scripts/sweep_confidence.py (no new requests). A new prompt: about one request per paper.
+paths:
+  prompt_extraction: config/prompts/extraction_v5.txt
+
+# Made before the level prompt became the default (2026-11-19): without it, as when it was run.
+field_prompts:
+  biodiversity_level: null

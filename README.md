@@ -5,15 +5,16 @@
 Reads biodiversity papers (PDF) and fills a fixed German record per paper.
 We compared two ways to feed long documents to an LLM; with the same model they scored
 about equal, so **F is our main system** (faster and simpler: about 107 instead of 255
-requests per dev run). B stays in the code and reproducible, but is no longer developed.
+requests per dev run, before the level prompt doubled F's requests). B stays in the code and reproducible, but is no longer developed.
 
 | Pipeline | Idea | Prompt | Model |
 |---|---|---|---|
-| **F** full text (main system) | whole document, one call | v4: v2 plus the database labels of the 3 most similar training papers | `deepseek-v4.1-flash-1017` |
+| **F** full text (main system) | whole document, one call, plus one call only for biodiversity_level | v4: v2 plus the database labels of the 3 most similar training papers; level_v1 for biodiversity_level | `deepseek-v4.1-flash-1017` |
 | **B** parallel (not developed further) | chunks of 16,000 tokens, at most 4 per paper (longer papers get larger chunks), each in its own call, merged in Python | v2 / chunk v1 | `deepseek-v4-flash-0731` (`config/experiments/prompt_v2.yaml`) |
 
 Prompt v4 shows, for each paper, how the database labelled its most similar training
 papers (TF-IDF on the first pages of the PDFs), so the model sees the database's conventions.
+A second call per paper with its own prompt (level_v1) decides biodiversity_level.
 Every label needs a verbatim quote; a Python checker drops labels without one. Afterwards F
 drops a paper's ecosystem services if none of its similar training papers has any.
 Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md` · All experiments: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)
@@ -92,8 +93,8 @@ python3 src/retrieval.py --split dev       # writes data/processed/neighbours_de
 ### 2. Run pipeline F (the defaults)
 
 ```bash
-python3 src/run_pipeline.py full_text --split dev --dry-run   # sends nothing, expect about 107 requests
-python3 src/run_pipeline.py full_text --split dev             # about 25 min, about 107 requests
+python3 src/run_pipeline.py full_text --split dev --dry-run   # sends nothing; counts the requests not yet in the cache (about 214 without a cache)
+python3 src/run_pipeline.py full_text --split dev             # about 214 requests (107 main + 107 level calls), about 50 min (estimated: twice F alone)
 ```
 
 Pipeline B (no longer developed) runs only with its last setting; with the defaults it
@@ -127,8 +128,9 @@ All experiments with their results and what we learned: [`docs/EXPERIMENTS.md`](
 
 | Pipeline | C1 | C2b |
 |---|---|---|
-| **F (full text, prompt v4, DeepSeek 4.1, service rule): the defaults** | **0.6644** | **0.4130** |
-| F without the service rule (`no_service_rule.yaml`) | 0.6644 | 0.3733 |
+| **F (full text, prompt v4, DeepSeek 4.1, service rule, level prompt): the defaults** (not robust: bootstrap 73 %) | **0.6732** | **0.4202** |
+| F without the level prompt (`no_level_prompt.yaml`) | 0.6644 | 0.4130 |
+| F without level prompt and service rule (`no_service_rule.yaml`) | 0.6644 | 0.3733 |
 | F (prompt v4, DeepSeek 4.0, `prompt_v4.yaml`) | 0.5836 | 0.3602 |
 | F (prompt v2, DeepSeek 4.0, `prompt_v2.yaml`) | 0.5710 | 0.3310 |
 | B (at most 4 chunks, chunk prompt v1, DeepSeek 4.0, `prompt_v2.yaml`) | 0.5872 | 0.3311 |
