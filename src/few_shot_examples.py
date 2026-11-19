@@ -119,11 +119,16 @@ class FewShotExamples:
         train_references = load_references(settings["paths"]["references_train"])
         return cls(neighbour_ids, train_references, settings["few_shot"])
 
+    def neighbour_references(self, document_id: str) -> list[dict[str, Any]]:
+        """The train references of a document's neighbours; empty if it has none.
+        Also used by the post-processing rule on services (src/postprocessing.py)."""
+        return [self.train_references[train_id] for train_id in self.neighbour_ids.get(document_id) or []]
+
     def text_for(self, document_id: str) -> str:
         """The `{examples}` text of one document; a document without neighbours (no
         first-pages text) gets a note instead of examples."""
-        ids = self.neighbour_ids.get(document_id)
-        if not ids:
+        references = self.neighbour_references(document_id)
+        if not references:
             logger.warning("%s: no neighbours, prompt without examples", document_id)
             return NO_EXAMPLES
-        return format_examples([self.train_references[train_id] for train_id in ids], self.few_shot)
+        return format_examples(references, self.few_shot)

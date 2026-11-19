@@ -14,7 +14,8 @@ requests per dev run). B stays in the code and reproducible, but is no longer de
 
 Prompt v4 shows, for each paper, how the database labelled its most similar training
 papers (TF-IDF on the first pages of the PDFs), so the model sees the database's conventions.
-Every label needs a verbatim quote; a Python checker drops labels without one.
+Every label needs a verbatim quote; a Python checker drops labels without one. Afterwards F
+drops a paper's ecosystem services if none of its similar training papers has any.
 Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md` · All experiments: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)
 
 ## Repository Structure
@@ -126,7 +127,8 @@ All experiments with their results and what we learned: [`docs/EXPERIMENTS.md`](
 
 | Pipeline | C1 | C2b |
 |---|---|---|
-| **F (full text, prompt v4, DeepSeek 4.1): the defaults** | **0.6644** | **0.3733** |
+| **F (full text, prompt v4, DeepSeek 4.1, service rule): the defaults** | **0.6644** | **0.4130** |
+| F without the service rule (`no_service_rule.yaml`) | 0.6644 | 0.3733 |
 | F (prompt v4, DeepSeek 4.0, `prompt_v4.yaml`) | 0.5836 | 0.3602 |
 | F (prompt v2, DeepSeek 4.0, `prompt_v2.yaml`) | 0.5710 | 0.3310 |
 | B (at most 4 chunks, chunk prompt v1, DeepSeek 4.0, `prompt_v2.yaml`) | 0.5872 | 0.3311 |

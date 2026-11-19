@@ -6,10 +6,9 @@ PDF** (`data/processed/dev_with_pdf.jsonl`), scored with `src/evaluation.py`
 (`--categorical-only`). Decisions and their reasons: `SPEC.md`, section 13.
 Prompt versions: `config/prompts/README.md`.
 
-**Current best:** pipeline F, prompt v4 (training examples), DeepSeek 4.1:
-**C1 0.6644, C2b 0.3733** (`runs/20261119-140809_full_text_dev_model_deepseek_v41`);
-with the post-processing rule on services (section 10): **C2b 0.4130** (measured on the same
-run, to be confirmed by a run from the cache).
+**Current best:** pipeline F, prompt v4 (training examples), DeepSeek 4.1, plus the
+post-processing rule on services (section 10): **C1 0.6644, C2b 0.4130**
+(`runs/20261119-154747_full_text_dev`).
 
 > Dev scores are slightly optimistic: prompt, checker settings and model were all chosen on
 > these 100 papers. Expect a few hundredths less on the test set.
@@ -29,9 +28,9 @@ run, to be confirmed by a run from the cache).
 | 6 | 11-19 | B as #5, checker 3–60 words | shorter quotes allowed | 0.5872 | 0.3311 | `20261119-105128_parallel_dev_max_4_chunks_min_quote_words_3` |
 | 7 | 11-19 | F, prompt v3 | schema questions, taxa base rate, always German names | 0.5122 | 0.3180 | `20261119-120510_full_text_dev` |
 | 8 | 11-19 | F, prompt v4, DeepSeek 4.0 | v2 + examples of the 3 most similar training papers | 0.5836 | 0.3602 | `20261119-134529_full_text_dev_prompt_v4` |
-| 9 | 11-19 | **F, prompt v4, DeepSeek 4.1** | newer model | **0.6644** | **0.3733** | `20261119-140809_full_text_dev_model_deepseek_v41` |
+| 9 | 11-19 | F, prompt v4, DeepSeek 4.1 | newer model | 0.6644 | 0.3733 | `20261119-140809_full_text_dev_model_deepseek_v41` |
 | 10 | 11-19 | #9 + verifier | second call per paper, keep/drop only | 0.6524 | 0.3603 | `20261119-151706_verify_dev` |
-| 11 | 11-19 | **#9 + service rule** | drop services if no training neighbour has any (section 10) | 0.6644 | **0.4130** | measured on #9; run pending |
+| 11 | 11-19 | **#9 + service rule** | drop services if no training neighbour has any (section 10) | **0.6644** | **0.4130** | `20261119-154747_full_text_dev` |
 
 
 ---
@@ -197,8 +196,12 @@ paper without neighbours (no first-pages text) keeps its services.
 
 | On F v4.1 | service category TP / FP | service term TP / FP | C1 | C2b |
 |---|---|---|---|---|
-| without rule | 5 / 25 | 4 / 29 | 0.6644 | 0.3733 |
-| with rule | 5 / 12 | 4 / 15 | 0.6644 | **0.4130** |
+| without rule (`no_service_rule.yaml`) | 5 / 25 | 4 / 29 | 0.6644 | 0.3733 |
+| with rule (the default) | 5 / 12 | 4 / 15 | 0.6644 | **0.4130** |
+
+Confirmed by two dev runs from the cache (0 API requests each): with the rule
+(`runs/20261119-154747_full_text_dev`) C1 0.6644, C2b 0.4130; without it C1 0.6644, C2b 0.3733,
+exactly F v4.1 (#9). So the +0.040 C2b comes only from the rule.
 
 **What we learned:** the rule keeps all correct services and removes about half of the false
 ones; better in 99.8 % of 2,000 bootstrap samples. The pattern holds on train, so it is a
