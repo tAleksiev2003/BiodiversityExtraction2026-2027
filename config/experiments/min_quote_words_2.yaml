@@ -1,3 +1,8 @@
-# Checker tuning (free): quotes may be as short as 2 word(s) (default 5), e.g. a taxon name.
+# Checker tuning (free): quotes may be as short as 2 word(s) (5 when it was run; default 3 since 2026-11-19).
+# Pinned to the setting of the run (pipeline F, prompt v2, DeepSeek 4.0), so it is answered from the cache.
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+models:
+  full_text: deepseek-v4-flash-0731
 verbatim_check:
   min_quote_words: 2

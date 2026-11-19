@@ -1,0 +1,7 @@
+# Prompt v4 (F) with DeepSeek 4.0, as run on 2026-11-19 (C1 0.5836, C2b 0.3602). Since then
+# v4 is the default prompt, with DeepSeek 4.1 (config/experiments/model_deepseek_v41.yaml).
+# Needs neighbours_<split>.json (src/first_pages.py, then src/retrieval.py). F only.
+paths:
+  prompt_extraction: config/prompts/extraction_v4.txt
+models:
+  full_text: deepseek-v4-flash-0731

@@ -140,6 +140,7 @@ class CheckedLabel:
     key: tuple[str | None, ...]   # identifies the label across calls (merging, C5)
     entry: LabelEntry
     normalised_quote: str | None
+    quote: str | None = None      # as the model wrote it; shown to the verifier (src/verification.py)
 
 
 @dataclass(frozen=True)
@@ -271,7 +272,7 @@ def check_answer(
             log.append(CheckLogEntry(document_id, call, label.field, label_dict, dropped.check,
                                      False, dropped.score, dropped.reason))
             continue
-        kept.append(CheckedLabel(label.field, key, entry, normalised_quote))
+        kept.append(CheckedLabel(label.field, key, entry, normalised_quote, quote))
         log.append(CheckLogEntry(document_id, call, label.field, label_dict, CHECK_VERBATIM_QUOTE,
                                  True, score, "quote found in the text"))
     return kept, log

@@ -1,0 +1,6 @@
+# src/run_verify.py without applying the taxa decisions: taxa entries count for C1
+# (species_group) and C2b (names), so dropping them may cost more than it gains.
+# The prompts are the same as with all fields (verify.candidate_fields), so this run
+# comes from the cache of the full verify run and sends no request.
+verify:
+  fields: [biodiversity_level, ecosystem_service, ecosystem_type]

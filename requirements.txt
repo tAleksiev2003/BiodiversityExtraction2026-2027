@@ -15,3 +15,7 @@ python-dotenv==1.2.4
 # M3a: pipeline F and verbatim checker
 rapidfuzz==3.14.6                # verbatim checker, check C4 (partial_ratio)
 pydantic==2.12.4                 # parsing the LLM answers (already installed with docling)
+# Prompt v4: few-shot examples from similar training papers
+pymupdf==2.1                     # src/first_pages.py: fast text of the first pages (no Docling)
+sentence-transformers==6.3.0     # src/retrieval.py: multilingual sentence embeddings
+scikit-learn==1.9.1              # src/retrieval.py: TF-IDF for comparison

@@ -27,7 +27,10 @@ from llm_client import LLMClient
 from output import PREDICTIONS_FILENAME
 from pdf_to_text import save_document
 from pipelines.full_text import CALL_LOG_NAME, CHECK_LOG_NAME, DOCUMENT_LOG_NAME, SUMMARY_NAME, run_full_text
-from pipelines.parallel import CHECK_CHUNK_VOTE, merge_document, run_parallel, vote_across_chunks, MergeConfig
+from pipelines.parallel import (
+    CHECK_CHUNK_VOTE, PROMPT_V2_EXPERIMENT, ParallelPipeline, merge_document, run_parallel, unsupported_settings,
+    vote_across_chunks, MergeConfig)
+from settings import REPO_ROOT, load_settings
 from prompts import ExtractionPrompt
 from verbatim_checker import CHECK_VERBATIM_QUOTE, CheckedLabel, CheckerConfig
 
@@ -178,9 +181,9 @@ def test_merge_gives_one_label_per_key_after_the_vote(settings):
 
 # --- chunk prompt ------------------------------------------------------------------------------
 
-def test_chunk_prompt_is_filled_and_has_no_pipeline_a_section(invented_settings, specs):
-    paths = invented_settings["paths"]
-    prompt = ExtractionPrompt.from_settings(invented_settings, paths["prompt_extraction_chunked"])
+def test_chunk_prompt_is_filled_and_has_no_pipeline_a_section(b_settings, specs):
+    paths = b_settings["paths"]
+    prompt = ExtractionPrompt.from_settings(b_settings, paths["prompt_extraction_chunked"])
     text = "An invented chunk with {braces}."
     system, user = prompt.messages("DOC00001", "2/3", text)
     content = system["content"] + user["content"]
@@ -259,8 +262,14 @@ class InventedLlm:
 
 
 @pytest.fixture
-def pipeline_settings(invented_settings: dict[str, Any]) -> dict[str, Any]:
-    copied = copy.deepcopy(invented_settings)
+def b_settings(invented_settings: dict[str, Any], apply_experiment) -> dict[str, Any]:
+    """B is run with prompt_v2.yaml since 2026-11-19 (it does not support prompt v4)."""
+    return apply_experiment(invented_settings, Path(PROMPT_V2_EXPERIMENT).name)
+
+
+@pytest.fixture
+def pipeline_settings(b_settings: dict[str, Any]) -> dict[str, Any]:
+    copied = copy.deepcopy(b_settings)
     copied["chunking"]["max_chunk_tokens"] = CHUNK_TOKENS
     for document_id, sections in INVENTED_DOCUMENTS.items():
         save_document(build_document(sections), copied["paths"]["docling"] / "dev" / f"{document_id}.json")
@@ -429,3 +438,24 @@ def test_switch_off_sends_one_chunk_documents_with_the_chunk_prompt(pipeline_set
     summary, _ = run(pipeline_settings, llm, tmp_path, word_tokenizer, document_ids=["DOC00002"])
     assert CHUNK_RULE in all_text(llm.prompts[0])
     assert summary["chunks"]["documents_sent_as_full_text"] == 0
+
+
+# --- B is no longer developed: it runs only with prompt_v2.yaml (2026-11-19) -------------------
+
+B_EXPERIMENTS = ["prompt_v2.yaml", "prompt_v3.yaml", "max_4_chunks.yaml", "chunked_qwen.yaml", "chunk_8k.yaml",
+                 "merge_min_chunks_2.yaml", "merge_min_chunks_3.yaml",
+                 *(f"max_4_chunks_min_quote_words_{words}.yaml" for words in (1, 2, 3)),
+                 *(f"max_4_chunks_quote_words_{words}.yaml" for words in (40, 80, 120))]
+
+
+def test_b_with_the_defaults_stops_and_names_prompt_v2(invented_settings, word_tokenizer):
+    reason = unsupported_settings(invented_settings)
+    assert reason is not None and PROMPT_V2_EXPERIMENT in reason
+    with pytest.raises(ValueError, match="prompt_v2.yaml"):
+        ParallelPipeline(invented_settings, None, invented_settings["paths"]["docling"], word_tokenizer(10))
+    assert (REPO_ROOT / PROMPT_V2_EXPERIMENT).exists()
+
+
+@pytest.mark.parametrize("experiment", B_EXPERIMENTS)
+def test_b_experiment_files_can_run(experiment):
+    assert unsupported_settings(load_settings(REPO_ROOT / "config" / "experiments" / experiment)) is None

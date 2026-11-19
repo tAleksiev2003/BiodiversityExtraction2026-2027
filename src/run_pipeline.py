@@ -5,9 +5,10 @@ Usage (run by the team: it reads course data and, without --dry-run, sends reque
     python3 src/run_pipeline.py full_text --split dev --limit 3     # 3 documents
     python3 src/run_pipeline.py full_text --split dev
     python3 src/run_pipeline.py full_text --split dev --experiment config/experiments/no_verbatim_check.yaml
-    python3 src/run_pipeline.py parallel --split dev --dry-run      # pipeline B: chunks and requests
+    python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/prompt_v2.yaml --dry-run   # pipeline B
 
-Needs the converted documents (src/pdf_to_text.py). Writes runs/<timestamp>_<name>/ with
+Needs the converted documents (src/pdf_to_text.py); prompt v4 (the default) also needs
+data/processed/neighbours_<split>.json (src/first_pages.py, src/retrieval.py). Writes runs/<timestamp>_<name>/ with
 config.yaml, commit.txt, llm_calls.jsonl (prompts and raw answers), documents.jsonl,
 verbatim_check_log.jsonl, summary.json and, unless stopped or a dry run,
 predictions.jsonl + predictions.zip. A stopped run (daily limit, Ctrl + C) continues
@@ -19,10 +20,12 @@ import sys
 from pathlib import Path
 
 from chunking import load_tokenizer
+from few_shot_examples import FewShotExamples
 from llm_client import LLMClient
 from pdf_to_text import converted_dir, document_ids_for_split
 from pipelines.full_text import CALL_LOG_NAME, run_full_text
-from pipelines.parallel import run_parallel
+from pipelines.parallel import run_parallel, unsupported_settings
+from prompts import ExtractionPrompt
 from runs import create_run_dir
 from settings import load_settings
 
@@ -55,6 +58,12 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # one line per HTTP call is too much
     settings = load_settings(args.experiment)
+    if args.pipeline == "parallel":
+        reason = unsupported_settings(settings)
+        if reason is not None:
+            sys.exit(reason)  # before a run folder is created
+    uses_examples = ExtractionPrompt.from_settings(settings).uses_examples
+    examples = FewShotExamples.from_settings(settings, args.split) if uses_examples else None
     document_ids = document_ids_for_split(settings, args.split)
     if args.limit is not None:
         document_ids = document_ids[:args.limit]
@@ -66,7 +75,7 @@ def main() -> None:
     document_dir = converted_dir(settings, args.split)
     if args.pipeline == "full_text":
         tokenizer = load_tokenizer(settings, max_tokens=settings["models"]["full_text_part_tokens"])
-        summary = run_full_text(settings, document_ids, client, run_dir, document_dir, tokenizer)
+        summary = run_full_text(settings, document_ids, client, run_dir, document_dir, tokenizer, examples)
     else:
         tokenizer = load_tokenizer(settings)  # cuts at chunking.max_chunk_tokens, then packing
         summary = run_parallel(settings, document_ids, client, run_dir, document_dir, tokenizer)

@@ -12,13 +12,17 @@ paths:
   schema_biodiversity: data/schemas/biodiversity.json
   term_to_category: data/labels/term_to_category.json
   variable_vocabulary: data/labels/variable_vocabulary.json
-  prompt_extraction: config/prompts/extraction_v2.txt   # pipeline F; versions and results: config/prompts/README.md; back to v2 on 2026-11-19 (v3 was worse); v3: config/experiments/prompt_v3.yaml
-  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt   # pipeline B: one chunk per call (v2 plus rule R9); chunk_v2 was worse
+  prompt_extraction: config/prompts/extraction_v4.txt   # pipeline F; versions and results: config/prompts/README.md; 2026-11-19: v4 (v2 plus training examples; needs src/first_pages.py and src/retrieval.py); v2: config/experiments/prompt_v2.yaml
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt   # pipeline B: one chunk per call (v2 plus rule R9); chunk_v2 was worse. B is no longer developed (2026-11-19): run it with config/experiments/prompt_v2.yaml
   prompt_retry_invalid_json: config/prompts/retry_invalid_json.txt   # appended once after an answer that is not valid JSON
+  prompt_verify: config/prompts/verify_v1.txt   # src/run_verify.py: second call per paper that keeps or drops the labels of an F run (SPEC.md, section 13)
   processed: data/processed
   docling: data/processed/docling           # converted documents (Docling JSON), one folder per split
   runs: runs
   cache: data/processed/llm_cache
+  first_pages: data/processed/first_pages    # src/first_pages.py: first pages of every PDF as plain text, one folder per split
+  embeddings: data/processed/embeddings      # src/retrieval.py: cached sentence embeddings of the first pages
+  # src/retrieval.py writes the neighbours to <processed>/neighbours_<split>.json
 
 data:
   dev_subset_size: 100        # develop on a fixed random subset; null = all dev papers
@@ -28,9 +32,9 @@ baselines:
   random_seed: 42                           # random baseline (official seed unknown)
 
 models:
-  full_text: deepseek-v4-flash-0731         # pipeline F, 1M context
+  full_text: deepseek-v4.1-flash-1017       # pipeline F, the main system since 2026-11-19 (SPEC.md, section 13); context assumed 1M like 4.0 (not in the GWDG model list); 4.0 (deepseek-v4-flash-0731): config/experiments/prompt_v2.yaml, prompt_v4.yaml
   full_text_fallback: glm-5.3-flash         # if the main model is too slow
-  chunked: deepseek-v4-flash-0731           # pipeline B, same model as F since 2026-11-18 (SPEC.md, section 13); Qwen: config/experiments/chunked_qwen.yaml
+  chunked: deepseek-v4-flash-0731           # pipeline B, same model as F from 2026-11-18 until F moved to DeepSeek 4.1 (2026-11-19); Qwen: config/experiments/chunked_qwen.yaml
   full_text_context_tokens: 1000000         # deepseek-v4-flash: longer documents are split into parts (full_text_part_tokens)
   chunked_context_tokens: 256000            # qwen3-30b-a3b (config/experiments/chunked_qwen.yaml); only the M1 statistics use it (documents over 256K)
   full_text_part_tokens: 900000             # pipeline F: max size of one part for documents over the context window
@@ -82,6 +86,32 @@ merge:
 
 prompt:
   vocabulary_top_n: 50                      # most frequent measured variables shown to the model
+
+retrieval:
+  # Similar TRAIN papers for every dev/test paper (src/retrieval.py), shown as examples in prompt v4
+  first_pages_chars: 6000                   # characters read from the start of each PDF (PyMuPDF)
+  method: tfidf                             # 2026-11-19: tfidf beat embedding in the neighbour vote at every k (C2b k=3: 0.2300 vs 0.2074; C1 0.4645 vs 0.4597); which neighbours neighbours_<split>.json holds: embedding | tfidf
+  model: intfloat/multilingual-e5-small     # sentence-transformers model (papers mix German and English); reads at most 512 tokens
+  text_prefix: "query: "                    # e5 models expect a prefix; "query: " on both sides for symmetric similarity
+  batch_size: 16                            # texts embedded at once
+  k: 3                                      # neighbours per paper = examples in prompt v4
+  tfidf_min_df: 2                           # TF-IDF (comparison): ignore words in fewer train papers
+  tfidf_max_df: 0.8                         # ... and in a larger share of train papers
+  evaluate_k: [1, 2, 3, 5]                  # src/scripts/evaluate_neighbours.py: k values in the table
+  vote_min_share: 0.5                       # evaluate_neighbours.py: a label wins if at least this share of the k neighbours has it
+
+few_shot:
+  # Prompt v4: the section "How the database labelled similar documents" (src/few_shot_examples.py)
+  max_taxa_per_example: 10                  # taxa shown per example; the rest is counted
+  title_field: bibtex_title                 # reference keys shown as the example's heading (checked in train.jsonl)
+  type_field: bibtex_type
+
+verify:
+  # src/run_verify.py: one more call per paper (per part for split papers) that only keeps or drops the
+  # labels an existing F run kept; the extraction comes from that run's cache. Temperature: llm.temperature
+  model: deepseek-v4.1-flash-1017
+  candidate_fields: [biodiversity_level, ecosystem_service, ecosystem_type, taxa]   # sent to the model; prompt verify_v1 has a rule for each. habitat is never checked (103 of 113 right on dev)
+  fields: [biodiversity_level, ecosystem_service, ecosystem_type, taxa]   # decisions APPLIED; a field left out keeps all its labels. Same prompts, so a variant comes from the cache (verify_without_taxa.yaml)
 
 evaluation:
   task: all                                 # all | c1 | c2b

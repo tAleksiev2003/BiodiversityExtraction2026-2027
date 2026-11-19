@@ -1,6 +1,14 @@
 # Checker tuning for pipeline B with at most 4 chunks (free: same answers, filtered differently).
-# Combines max_4_chunks.yaml with max_quote_words 40 (default 60).
+# Combines max_4_chunks.yaml with max_quote_words 40 (default 60). Run before the default
+# min_quote_words changed from 5 to 3 (2026-11-19), so it keeps 5.
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+  chunked: deepseek-v4-flash-0731
 chunking:
   max_chunks_per_document: 4
 verbatim_check:
+  min_quote_words: 5
   max_quote_words: 40

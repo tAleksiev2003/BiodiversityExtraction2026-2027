@@ -17,12 +17,14 @@ value exactly as the schema spells it and no label string is typed into the code
 - `{min_quote_words}`, `{max_quote_words}` (since prompt v3): the quote length the
   verbatim checker accepts (`verbatim_check` in settings.yaml), so prompt and check C3
   cannot disagree;
-- `{document_id}`, `{chunk_id}`, `{chunk_text}`: the text of one call.
+- `{document_id}`, `{chunk_id}`, `{chunk_text}`: the text of one call;
+- `{examples}` (since prompt v4): the database labels of the most similar training
+  papers of this document (src/few_shot_examples.py), different for every document.
 
 The fixed parts are filled once per run (`ExtractionPrompt.from_settings`); only the
 text-specific placeholders change per call. A template may leave out any of these
-placeholders (v1 and v2 have no questions), so older versions give the same prompt as
-before and their answers still come from the cache.
+placeholders (v1 and v2 have no questions, v1 to v3 no examples), so older versions give
+the same prompt as before and their answers still come from the cache.
 """
 import json
 import re
@@ -40,6 +42,8 @@ LIST_INDENT = "   "
 ECOSYSTEM_TYPE_FIELD = "ecosystem_type"
 ECOSYSTEM_SERVICE_FIELD = "ecosystem_service"
 QUESTION_PLACEHOLDER_SUFFIX = "_question"
+EXAMPLES_PLACEHOLDER = "{examples}"
+PER_CALL_PLACEHOLDERS = ("document_id", "chunk_id", "chunk_text", "examples")
 
 
 def read_sections(template_path: Path) -> dict[str, str]:
@@ -91,7 +95,7 @@ class ExtractionPrompt:
     """The extraction template with all label lists filled in."""
 
     system_text: str
-    user_template: str  # still contains {document_id}, {chunk_id}, {chunk_text}
+    user_template: str  # still contains {document_id}, {chunk_id}, {chunk_text} (and {examples})
 
     @classmethod
     def from_settings(cls, settings: dict[str, Any], template_path: Path | None = None) -> "ExtractionPrompt":
@@ -124,18 +128,30 @@ class ExtractionPrompt:
         }
         # Fill the label lists now and keep the per-call placeholders for later. The
         # per-call placeholders are passed as themselves, so format() leaves them as they are.
-        keep_for_later = {name: "{" + name + "}" for name in ("document_id", "chunk_id", "chunk_text")}
+        keep_for_later = {name: "{" + name + "}" for name in PER_CALL_PLACEHOLDERS}
         user_template = sections[USER_SECTION].format(**label_lists, **questions, **keep_for_later)
         return cls(system_text=sections[SYSTEM_SECTION], user_template=user_template)
 
-    def messages(self, document_id: str, chunk_id: str, text: str) -> list[Message]:
+    @property
+    def uses_examples(self) -> bool:
+        """True for templates with training examples (v4): the caller must pass `examples`."""
+        return EXAMPLES_PLACEHOLDER in self.user_template
+
+    def messages(self, document_id: str, chunk_id: str, text: str,
+                 examples: str | None = None) -> list[Message]:
         """System and user message for one call.
 
         Plain replace() instead of format(): the document text may contain braces, and
-        the label lists are already filled in.
+        the label lists are already filled in. The examples are filled before the text,
+        so a document that happens to contain "{examples}" is sent unchanged.
         """
+        if self.uses_examples and examples is None:
+            raise ValueError("this prompt has an {examples} section: pass the training examples")
+        user_text = self.user_template
+        if self.uses_examples:
+            user_text = user_text.replace(EXAMPLES_PLACEHOLDER, examples)
         user_text = (
-            self.user_template
+            user_text
             .replace("{document_id}", document_id)
             .replace("{chunk_id}", chunk_id)
             .replace("{chunk_text}", text)

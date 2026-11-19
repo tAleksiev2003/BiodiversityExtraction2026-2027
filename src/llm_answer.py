@@ -14,7 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -63,8 +63,15 @@ class AnswerParseError(ValueError):
     """The answer is not a JSON object of the required shape."""
 
 
-def parse_answer(content: str) -> ExtractionAnswer:
-    """Parse and validate one answer; raises AnswerParseError with a short reason."""
+Answer = TypeVar("Answer", bound=BaseModel)
+
+
+def parse_json_model(content: str, model_class: type[Answer]) -> Answer:
+    """Parse one answer into `model_class`; raises AnswerParseError with a short reason.
+
+    Shared by the extraction answer and the verification answer (src/verification.py),
+    so both strip code fences and report problems the same way.
+    """
     fenced = CODE_FENCE.match(content)
     text = fenced.group(1) if fenced else content
     try:
@@ -72,7 +79,7 @@ def parse_answer(content: str) -> ExtractionAnswer:
     except json.JSONDecodeError as error:
         raise AnswerParseError(f"invalid JSON: {error}") from error
     try:
-        return ExtractionAnswer.model_validate(data)
+        return model_class.model_validate(data)
     except ValidationError as error:
         # One line per problem, without the (possibly long) input values.
         problems = "; ".join(
@@ -82,11 +89,16 @@ def parse_answer(content: str) -> ExtractionAnswer:
         raise AnswerParseError(f"wrong structure: {problems}") from error
 
 
+def parse_answer(content: str) -> ExtractionAnswer:
+    """Parse and validate one extraction answer."""
+    return parse_json_model(content, ExtractionAnswer)
+
+
 @dataclass(frozen=True)
-class AnswerOutcome:
+class AnswerOutcome(Generic[Answer]):
     """The parsed answer of one call and how it was obtained."""
 
-    answer: ExtractionAnswer
+    answer: Answer
     status: str          # STATUS_* above
     requests_sent: int   # 0 (cache, dry run), 1 or 2 (with retry): for the run summary
     error: str | None = None
@@ -96,16 +108,25 @@ def read_retry_template(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def request_answer(
-    client: LLMClient, model: str, messages: list[Message], retry_template: str
-) -> AnswerOutcome:
-    """Ask the model; on an invalid answer ask once more with the error appended."""
+def request_parsed(
+    client: LLMClient,
+    model: str,
+    messages: list[Message],
+    retry_template: str,
+    parse: Callable[[str], Answer],
+    empty: Answer,
+) -> AnswerOutcome[Answer]:
+    """Ask the model; on an invalid answer ask once more with the error appended.
+
+    `parse` raises AnswerParseError for an invalid answer; `empty` stands in for an
+    answer that is still invalid after the retry, or for a dry run.
+    """
     result = client.complete(model, messages)
     requests_sent = int(result.source == SOURCE_API)
     if result.source == SOURCE_DRY_RUN:
-        return AnswerOutcome(EMPTY_ANSWER, STATUS_DRY_RUN, requests_sent)
+        return AnswerOutcome(empty, STATUS_DRY_RUN, requests_sent)
     try:
-        return AnswerOutcome(parse_answer(result.content), STATUS_OK, requests_sent)
+        return AnswerOutcome(parse(result.content), STATUS_OK, requests_sent)
     except AnswerParseError as first_error:
         retry_messages: list[Message] = [
             *messages,
@@ -115,9 +136,16 @@ def request_answer(
     retry_result = client.complete(model, retry_messages)
     requests_sent += int(retry_result.source == SOURCE_API)
     if retry_result.source == SOURCE_DRY_RUN:
-        return AnswerOutcome(EMPTY_ANSWER, STATUS_DRY_RUN, requests_sent)
+        return AnswerOutcome(empty, STATUS_DRY_RUN, requests_sent)
     try:
-        return AnswerOutcome(parse_answer(retry_result.content), STATUS_OK_AFTER_RETRY, requests_sent)
+        return AnswerOutcome(parse(retry_result.content), STATUS_OK_AFTER_RETRY, requests_sent)
     except AnswerParseError as second_error:
         logger.warning("Answer still invalid after one retry, treated as empty: %s", second_error)
-        return AnswerOutcome(EMPTY_ANSWER, STATUS_INVALID, requests_sent, str(second_error))
+        return AnswerOutcome(empty, STATUS_INVALID, requests_sent, str(second_error))
+
+
+def request_answer(
+    client: LLMClient, model: str, messages: list[Message], retry_template: str
+) -> AnswerOutcome[ExtractionAnswer]:
+    """An extraction answer (pipelines F and B), with the one retry of request_parsed."""
+    return request_parsed(client, model, messages, retry_template, parse_answer, EMPTY_ANSWER)

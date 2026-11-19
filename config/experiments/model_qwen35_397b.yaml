@@ -1,0 +1,8 @@
+# Pipeline F with Qwen 3.5 397B A17B (another model family, 2026-11-19). Prompt v4,
+# so only the model differs from F v4 (C1 0.5836, C2b 0.3602).
+# Context 256K (GWDG model list), so papers above 230,000 tokens are split into parts.
+models:
+  full_text: qwen3.5-397b-a17b
+  full_text_part_tokens: 230000
+paths:
+  prompt_extraction: config/prompts/extraction_v4.txt

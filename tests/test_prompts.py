@@ -60,10 +60,13 @@ def schema_questions(settings) -> dict[str, str]:
 
 # --- prompt v3 and chunk v2 ---------------------------------------------------------------
 
-def test_defaults_are_v2_and_chunk_v1_and_v3_is_an_experiment(settings):
-    # v3 was worse than v2 on dev (2026-11-19), so the defaults went back to v2 / chunk_v1.
-    assert settings["paths"]["prompt_extraction"].name == "extraction_v2.txt"
+def test_defaults_are_v4_and_chunk_v1_and_v2_v3_are_experiments(settings):
+    # 2026-11-19: F with prompt v4 is the main system; B keeps chunk_v1 and runs with prompt_v2.yaml.
+    assert settings["paths"]["prompt_extraction"].name == "extraction_v4.txt"
     assert settings["paths"]["prompt_extraction_chunked"].name == "extraction_chunk_v1.txt"
+    v2 = load_settings(PROMPT_V2_EXPERIMENT)["paths"]
+    assert v2["prompt_extraction"].name == "extraction_v2.txt"
+    assert v2["prompt_extraction_chunked"].name == "extraction_chunk_v1.txt"
     v3 = load_settings(PROMPT_V3_EXPERIMENT)["paths"]
     assert v3["prompt_extraction"].name == "extraction_v3.txt"
     assert v3["prompt_extraction_chunked"].name == "extraction_chunk_v2.txt"
@@ -161,3 +164,27 @@ def test_check_pairs_reports_breaking_reference_pairs(service_values):
     follows, breaks = check_pairs(pairs, rule)
     assert follows == {"1": 2, "2": 1}
     assert breaks == {(two, categories[2]): 1}
+
+
+# --- experiment files of earlier F runs pin the prompt and model of that run (2026-11-19) -----
+
+DEEPSEEK_40 = "deepseek-v4-flash-0731"
+EARLIER_F_RUNS = {
+    "prompt_v1.yaml": "extraction_v1.txt",
+    "prompt_v2.yaml": "extraction_v2.txt",
+    "prompt_v3.yaml": "extraction_v3.txt",
+    "prompt_v4.yaml": "extraction_v4.txt",
+    **{f"quote_words_{words}.yaml": "extraction_v2.txt" for words in (60, 80, 120)},
+    **{f"min_quote_words_{words}.yaml": "extraction_v2.txt" for words in (1, 2, 3)},
+}
+
+
+@pytest.mark.parametrize("experiment, prompt_name", EARLIER_F_RUNS.items())
+def test_earlier_f_runs_keep_their_prompt_and_model(settings, experiment, prompt_name):
+    pinned = load_settings(REPO_ROOT / "config" / "experiments" / experiment)
+    assert pinned["paths"]["prompt_extraction"].name == prompt_name
+    assert pinned["models"]["full_text"] == DEEPSEEK_40 != settings["models"]["full_text"]
+
+
+def test_deepseek_41_experiment_equals_the_default(settings):
+    assert load_settings(REPO_ROOT / "config" / "experiments" / "model_deepseek_v41.yaml") == settings

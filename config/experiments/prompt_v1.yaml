@@ -1,3 +1,9 @@
-# The first extraction prompt (M3a baseline). Its answers are in the cache, so a run costs 0 requests.
+# The first extraction prompt (M3a baseline) with the model of that run (DeepSeek 4.0).
+# Its answers are in the cache, so a run costs 0 requests. min_quote_words 5 as in that run
+# (default 3 since 2026-11-19); with max_quote_words 60 it gives C1 0.5196, C2b 0.3113.
 paths:
   prompt_extraction: config/prompts/extraction_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+verbatim_check:
+  min_quote_words: 5

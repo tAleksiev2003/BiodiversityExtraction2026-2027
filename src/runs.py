@@ -47,3 +47,17 @@ def create_run_dir(settings: dict[str, Any], experiment_name: str) -> Path:
     )
     (run_dir / "commit.txt").write_text(git_commit_hash() + "\n", encoding="utf-8")
     return run_dir
+
+
+def load_run_settings(run_dir: Path) -> dict[str, Any]:
+    """The settings an earlier run used (its config.yaml), with the paths as Path objects.
+
+    A later step that builds on a run (src/run_verify.py) must rebuild that run's prompts
+    exactly, so it uses these settings and not the current ones.
+    """
+    config_path = run_dir / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"{config_path} missing: is {run_dir} a run folder?")
+    settings = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    settings["paths"] = {name: Path(value) for name, value in settings["paths"].items()}
+    return settings

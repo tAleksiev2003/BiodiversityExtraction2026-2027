@@ -1,4 +1,12 @@
-# Pipeline B with the smaller chunks of M1 (8,000 tokens; default 16,000, SPEC.md, section 13).
-# The chunks change, so the prompts change too: this run sends new requests (about 615 on dev).
+# Pipeline B with the smaller chunks of M1 (8,000 tokens; default 16,000, SPEC.md, section 13),
+# on B's setting (prompt_v2.yaml). The chunks change, so the prompts change too: this run
+# sends new requests (not run yet).
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+  chunked: deepseek-v4-flash-0731
 chunking:
   max_chunk_tokens: 8000
+  max_chunks_per_document: 4

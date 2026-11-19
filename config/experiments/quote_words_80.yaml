@@ -1,4 +1,10 @@
-# Checker tuning (free): the same LLM answers, quotes may have up to 80 words (default 40).
-# The prompts are unchanged, so a run with this file is answered from the cache.
+# Checker tuning (free): the same LLM answers, quotes may have up to 80 words.
+# Pinned to the setting of the run (pipeline F, prompt v2, DeepSeek 4.0, min_quote_words 5),
+# so it is answered from the cache.
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+models:
+  full_text: deepseek-v4-flash-0731
 verbatim_check:
+  min_quote_words: 5
   max_quote_words: 80

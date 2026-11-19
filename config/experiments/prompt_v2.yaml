@@ -1,5 +1,12 @@
-# Prompt v2 (F) and chunk prompt v1 (B): the defaults again since 2026-11-19 (back from v3).
-# Same as the default; kept so the run names of 2026-11-19 stay reproducible.
+# Prompt v2 (F) and chunk prompt v1 (B) with DeepSeek 4.0: the defaults until 2026-11-19
+# (since then: prompt v4 and DeepSeek 4.1 for F). Pipeline B is no longer developed and runs
+# only with this file (or one built on it): B with at most 4 chunks, C1 0.5872, C2b 0.3311;
+# F with v2, C1 0.5710, C2b 0.3310. All answers are in the cache, so a run costs 0 requests.
 paths:
   prompt_extraction: config/prompts/extraction_v2.txt
   prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+  chunked: deepseek-v4-flash-0731
+chunking:
+  max_chunks_per_document: 4

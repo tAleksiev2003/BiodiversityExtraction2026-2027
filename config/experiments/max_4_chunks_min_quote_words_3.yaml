@@ -1,4 +1,11 @@
-# Checker tuning for pipeline B with at most 4 chunks (free): quotes may be as short as 3 word(s) (default 5).
+# Checker tuning for pipeline B with at most 4 chunks (free): quotes may be as short as 3 word(s)
+# (5 when it was run; default 3 since 2026-11-19). Pinned to B's setting (prompt_v2.yaml).
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+  chunked: deepseek-v4-flash-0731
 chunking:
   max_chunks_per_document: 4
 verbatim_check:

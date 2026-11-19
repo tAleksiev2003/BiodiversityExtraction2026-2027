@@ -20,6 +20,7 @@ import pytest
 from docling_core.types.doc import BoundingBox, DocItemLabel, DoclingDocument, ProvenanceItem, Size
 
 from data import ID_FIELD, read_jsonl
+from few_shot_examples import FewShotExamples
 from llm_answer import STATUS_DRY_RUN, STATUS_INVALID, STATUS_OK, STATUS_OK_AFTER_RETRY
 from llm_client import LLMClient
 from output import PREDICTIONS_FILENAME
@@ -139,8 +140,9 @@ def run(settings: dict[str, Any], llm: InventedLlm | None, tmp_path: Path, word_
     run_dir.mkdir()
     client = LLMClient(settings, dry_run=dry_run, call_log_path=run_dir / "llm_calls.jsonl",
                        openai_clients=[llm.openai_client()] if llm is not None else None)
+    examples = FewShotExamples.from_settings(settings, "dev")  # prompt v4 is the default
     summary = run_full_text(settings, ALL_IDS, client, run_dir, settings["paths"]["docling"] / "dev",
-                            word_tokenizer(PART_TOKENS))
+                            word_tokenizer(PART_TOKENS), examples)
     return summary, run_dir
 
 
@@ -238,10 +240,12 @@ def test_checker_switched_off_keeps_unverified_labels(pipeline_settings, fake_ll
 
 # --- prompt -------------------------------------------------------------------------------
 
-def test_prompt_shows_every_allowed_value_and_keeps_the_text_unchanged(invented_settings, specs) -> None:
+def test_prompt_shows_every_allowed_value_and_keeps_the_text_unchanged(invented_settings, specs,
+                                                                       invented_examples) -> None:
     prompt = ExtractionPrompt.from_settings(invented_settings)
     text = "An invented text with {braces} and a {chunk_text} placeholder look-alike."
-    system, user = prompt.messages("DOC00001", "1/1", text)
+    examples = invented_examples.text_for("DOC00001")
+    system, user = prompt.messages("DOC00001", "1/1", text, examples)
     assert system["role"] == "system" and user["role"] == "user"
     content = user["content"]
     for name in ("habitat", "biodiversity_level", "taxa.species_group", "ecosystem_type.category",
@@ -252,4 +256,5 @@ def test_prompt_shows_every_allowed_value_and_keeps_the_text_unchanged(invented_
     assert "chunk 1/1 of document DOC00001" in content
     assert '{"field": "habitat"' in content  # the escaped braces of the output structure
     assert "Erfundene Variable" in content     # vocabulary from the invented label file
+    assert examples in content and "Invented training paper TRAIN0001" in content  # prompt v4
     assert "LEDGER" not in content.upper().split("## TEXT")[0]  # the unused pipeline A section is not sent

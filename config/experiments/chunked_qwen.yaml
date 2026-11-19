@@ -1,7 +1,15 @@
 # Pipeline B with Qwen, as run on 2026-11-18 (dev: C1 0.4527, C2b 0.2070 with k = 1).
 # Same requests as that run, so it comes from the cache: every document is sent with the
-# chunk prompt, also documents with one chunk (SPEC.md, section 13).
+# chunk prompt, also documents with one chunk (SPEC.md, section 13), with the chunks of
+# that time (at most 20 per paper) and the checker of that time (min_quote_words 5).
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
 models:
   chunked: qwen3-30b-a3b-instruct-2507
+chunking:
+  max_chunks_per_document: 20
 parallel:
   one_chunk_as_full_text: false
+verbatim_check:
+  min_quote_words: 5

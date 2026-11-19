@@ -6,7 +6,8 @@ Per document:
 2. if the text has more than `models.full_text_part_tokens` tokens, split it into as few
    parts as possible with the chunker from M1 (never truncated silently; such documents
    are reported separately);
-3. one call per part with `models.full_text` and the prompt of section 6;
+3. one call per part with `models.full_text` and the prompt of section 6 (prompt v4 also
+   gets the labels of the document's most similar training papers, few_shot_examples.py);
 4. the verbatim checker (C1 to C4) right after every call, with the text of that part;
 5. merge the parts as in pipeline B (C5: verified quotes from any part count).
 
@@ -33,7 +34,8 @@ from docling_core.types.doc import DoclingDocument
 from api_key_pool import MissingApiKeyError, NoUsableApiKeyError
 from chunking import ChunkingConfig, chunk_document
 from data import ID_FIELD
-from llm_answer import read_retry_template, request_answer
+from few_shot_examples import FewShotExamples
+from llm_answer import AnswerOutcome, ExtractionAnswer, read_retry_template, request_answer
 from llm_client import LLMClient, describe_error
 from output import write_predictions
 from parallel_runner import run_in_parallel
@@ -65,6 +67,11 @@ CALL_LOG_NAME = "llm_calls.jsonl"
 
 # Errors after which no further request can succeed today: stop the run cleanly.
 STOP_ERRORS = (DailyLimitReachedError, NoUsableApiKeyError, MissingApiKeyError)
+
+
+def part_call(number: int, part_count: int) -> str:
+    """The call name of one part, e.g. "2/3"; it is part of the prompt (and the cache key)."""
+    return f"{number}/{part_count}"
 
 
 @dataclass
@@ -106,14 +113,19 @@ class FullTextPipeline:
         client: LLMClient,
         document_dir: Path,
         tokenizer: BaseTokenizer,
+        examples: FewShotExamples | None = None,
     ) -> None:
         """`tokenizer` must have `models.full_text_part_tokens` as its max_tokens, because
-        the chunker splits at that size (see chunking.load_tokenizer)."""
+        the chunker splits at that size (see chunking.load_tokenizer). `examples` is
+        needed if and only if the prompt has an {examples} section (v4)."""
         self.client = client
         self.document_dir = document_dir
         self.model: str = settings["models"]["full_text"]
         self.part_tokens: int = settings["models"]["full_text_part_tokens"]
         self.prompt = ExtractionPrompt.from_settings(settings)
+        if self.prompt.uses_examples and examples is None:
+            raise ValueError("the prompt has an {examples} section, but no training examples were given")
+        self.examples = examples if self.prompt.uses_examples else None
         self.retry_template = read_retry_template(settings["paths"]["prompt_retry_invalid_json"])
         self.rules = LabelRules.from_settings(settings)
         self.checker_config = CheckerConfig.from_settings(settings)
@@ -139,6 +151,17 @@ class FullTextPipeline:
                     token_count, len(result.chunks), result.level, len(result.splits))
         return [chunk.text for chunk in result.chunks], token_count
 
+    def check_part(
+        self, document_id: str, call: str, part_text: str, examples: str | None
+    ) -> tuple[list[CheckedLabel], list[CheckLogEntry], AnswerOutcome[ExtractionAnswer]]:
+        """One call for one part plus checks C1 to C4. Also used by src/verification.py to
+        rebuild the labels of an earlier run from the cache."""
+        messages = self.prompt.messages(document_id, call, part_text, examples)
+        outcome = request_answer(self.client, self.model, messages, self.retry_template)
+        checked, check_log = check_answer(outcome.answer.labels, part_text, self.rules,
+                                          self.checker_config, document_id, call)
+        return checked, check_log, outcome
+
     def process_document(self, document_id: str) -> DocumentResult:
         """Calls, checks and merging for one document."""
         started = time.perf_counter()
@@ -148,16 +171,14 @@ class FullTextPipeline:
             return DocumentResult(document_id, STATUS_NOT_CONVERTED)
         parts, token_count = self.split_into_parts(load_document(path))
         result = DocumentResult(document_id, STATUS_DONE, token_count, len(parts))
+        examples = self.examples.text_for(document_id) if self.examples is not None else None
         verified: list[CheckedLabel] = []
         try:
             for number, part_text in enumerate(parts, start=1):
-                call = f"{number}/{len(parts)}"
-                messages = self.prompt.messages(document_id, call, part_text)
-                outcome = request_answer(self.client, self.model, messages, self.retry_template)
+                call = part_call(number, len(parts))
+                checked, check_log, outcome = self.check_part(document_id, call, part_text, examples)
                 result.answer_statuses.append(outcome.status)
                 result.requests_sent += outcome.requests_sent
-                checked, check_log = check_answer(outcome.answer.labels, part_text, self.rules,
-                                                  self.checker_config, document_id, call)
                 verified.extend(checked)
                 result.check_log.extend(check_log)
         except openai.APIError as error:
@@ -256,13 +277,16 @@ def run_full_text(
     run_dir: Path,
     document_dir: Path,
     tokenizer: BaseTokenizer,
+    examples: FewShotExamples | None = None,
 ) -> dict[str, Any]:
     """Process all documents, write the run files and (unless stopped or dry run) the predictions.
+
+    `examples`: the training examples of the split, needed for prompt v4.
 
     Run files: documents.jsonl and verbatim_check_log.jsonl (written as documents
     finish, so a stopped run keeps them), summary.json, predictions.jsonl + zip.
     """
-    pipeline = FullTextPipeline(settings, client, document_dir, tokenizer)
+    pipeline = FullTextPipeline(settings, client, document_dir, tokenizer, examples)
     parallel_requests = client.max_parallel_requests()
     print(f"{len(document_ids)} documents, model {pipeline.model}, up to {parallel_requests} "
           f"parallel requests, verbatim checker {'on' if pipeline.checker_config.enabled else 'off'}")

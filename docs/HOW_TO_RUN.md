@@ -94,9 +94,25 @@ remaining quota. Use it after adding a key, or to see how much quota is left. It
 one request per key. `list-models` shows the quota as "not reported" because
 `/v1/models` responses carry no `x-ratelimit-*` headers.
 
-## 5. Pipeline F: full text (M3a)
+## 5. Pipeline F: full text (M3a), the main system
 
-Needs the converted dev documents (section 3) and the label files in `data/labels/`.
+Since 2026-11-19 F is our main system (SPEC.md, section 13). The defaults run F with
+prompt v4 and DeepSeek 4.1 (`deepseek-v4.1-flash-1017`): dev C1 0.6644, C2b 0.3733.
+Needs the converted dev documents (section 3), the label files in `data/labels/` and
+the training examples of prompt v4 (once per split, no requests):
+
+```bash
+python3 src/first_pages.py --split train             # first pages of every PDF (PyMuPDF), resumable
+python3 src/first_pages.py --split dev               # (test: --split test)
+python3 src/retrieval.py --split dev                 # data/processed/neighbours_dev.json
+python3 src/scripts/evaluate_neighbours.py           # optional: how good are the neighbours? (scores only)
+```
+
+`first_pages.py` writes `data/processed/first_pages/<split>/<id>.txt` and logs every
+attempt in `first_pages_log.jsonl` there (`no_text`: a scanned PDF without a text layer;
+such a paper gets no examples). `retrieval.py` finds the `retrieval.k` (3) most similar
+TRAIN papers per paper with `retrieval.method` (tfidf); a run stops at once if the
+neighbour file was made with another method or k. Then:
 
 ```bash
 python3 src/run_pipeline.py full_text --split dev --dry-run    # counts requests, sends nothing
@@ -117,6 +133,12 @@ daily limit, or after `Ctrl + C`, the run stops cleanly; run the same command ag
 The run without the checker (`no_verbatim_check.yaml`) sends the same prompts, so after
 the normal run it is answered completely from the cache (0 requests).
 
+Earlier F runs (all from the cache): `prompt_v1.yaml`, `prompt_v2.yaml`, `prompt_v3.yaml`,
+`prompt_v4.yaml` (v4 with DeepSeek 4.0), the checker experiments `quote_words_*.yaml`
+and `min_quote_words_*.yaml` (prompt v2, DeepSeek 4.0). Each file names the prompt,
+model and checker values of its run. Other models with prompt v4: `model_glm53_flash.yaml`,
+`model_qwen35_397b.yaml`; `model_deepseek_v41.yaml` equals the defaults.
+
 Score a run:
 
 ```bash
@@ -134,21 +156,27 @@ writes into another folder (e.g. to measure the speed-up without touching the re
 If a worker process dies (often out of memory), the run stops with a message; converted
 documents are kept, run again with fewer workers.
 
-## 7. Pipeline B: parallel chunks (M3b)
+## 7. Pipeline B: parallel chunks (M3b), no longer developed
 
-Needs the converted dev documents (section 3). Same options as pipeline F.
+Since 2026-11-19 B is no longer developed (SPEC.md, section 13). It does not support
+prompt v4 (the default), so it runs only with its last setting,
+`config/experiments/prompt_v2.yaml` (prompt v2 / chunk prompt v1, DeepSeek 4.0, at most
+4 chunks: C1 0.5872, C2b 0.3311), or with an experiment file built on it. Without one it
+stops with a message that names that file. Needs the converted dev documents (section 3).
+Same options as pipeline F.
 
 ```bash
-python3 src/run_pipeline.py parallel --split dev --dry-run     # chunks per paper, requests; sends nothing
-python3 src/run_pipeline.py parallel --split dev --limit 3     # 3 documents
-python3 src/run_pipeline.py parallel --split dev               # all dev documents with a PDF
+B=config/experiments/prompt_v2.yaml
+python3 src/run_pipeline.py parallel --split dev --experiment $B --dry-run     # chunks per paper, requests; sends nothing
+python3 src/run_pipeline.py parallel --split dev --experiment $B --limit 3     # 3 documents
+python3 src/run_pipeline.py parallel --split dev --experiment $B               # all dev documents (from the cache)
 ```
 
 Every paper is cut into chunks of `chunking.max_chunk_tokens` (16,000) tokens; a long
 paper gets larger chunks, so it has at most `chunking.max_chunks_per_document` (4)
 chunks, never larger than `models.chunked_part_tokens` (240,000). One request per chunk
 with the chunk prompt (`paths.prompt_extraction_chunked`) and `models.chunked`
-(DeepSeek, the same model as F). A paper that fits into one chunk is the full-text case:
+(DeepSeek 4.0, the same model as F had until 2026-11-19). A paper that fits into one chunk is the full-text case:
 it sends exactly F's request (full text, `paths.prompt_extraction`), so after a run of F its answer comes
 from the cache (`parallel.one_chunk_as_full_text`). Run the dry run first: it prints the
 chunks in total, how many papers are sent as F's request, the median and maximum chunks
@@ -158,23 +186,24 @@ counted by the dry run do not include answers already in the cache.
 The run folder `runs/<timestamp>_parallel_dev[_...]/` has the same files as pipeline F;
 `documents.jsonl` also gives `chunk_count`, `chunk_tokens` (the chunk size used) and
 `full_text_request` per paper, `summary.json` the chunk numbers under `chunks`. Check `failed` and score as in
-section 5, with `runs/*_parallel_dev`.
+section 5, with `runs/*_parallel_dev_prompt_v2`.
 
 Experiments:
 
 ```bash
-# merging (free: answered from the cache of the normal run)
+# merging (free: answered from the cache of the prompt_v2.yaml run)
 python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/merge_min_chunks_2.yaml
 python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/merge_min_chunks_3.yaml
-python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/no_verbatim_check.yaml
-# smaller chunks (new requests, about 615 on dev)
+# checker tuning (free): max_4_chunks_min_quote_words_*.yaml, max_4_chunks_quote_words_*.yaml
+# smaller chunks (new requests, not run yet)
 python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/chunk_8k.yaml
-# the Qwen run of 2026-11-18 (from the cache: chunk prompt for every paper)
+# the Qwen run of 2026-11-18 (from the cache: chunk prompt for every paper, at most 20 chunks)
 python3 src/run_pipeline.py parallel --split dev --experiment config/experiments/chunked_qwen.yaml
 ```
 
-An experiment file replaces only the settings it names, and a run takes one file, so the
-merge experiments run with DeepSeek.
+An experiment file replaces only the settings it names, and a run takes one file, so
+every B experiment file repeats B's setting from `prompt_v2.yaml` (prompts, models,
+`max_chunks_per_document: 4`). `no_verbatim_check.yaml` does not, so it is for F only.
 
 `merge.min_chunks_per_label: k` keeps a label only if it has a verified quote in at least
 min(k, chunks of the paper) different chunks; the default 1 is the union.

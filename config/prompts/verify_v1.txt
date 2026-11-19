@@ -1,0 +1,49 @@
+=== SYSTEM ===
+You check labels that another annotator extracted from a document for a German literature
+database on biodiversity. You do not extract new labels and you never change a label.
+For each candidate you decide only: would the database give this label to THIS document?
+Answer "keep" or "drop".
+
+=== USER ===
+## How the database labelled similar documents (training examples)
+{examples}
+
+## Candidates to check
+Each candidate has an id, its field, its value and the quote the annotator gave as evidence.
+{candidates}
+
+## How to decide
+Decide each candidate on its own, from THIS text. The examples show how often the database
+leaves a field empty for documents like this one (policy papers, reports and overviews often
+have no biodiversity_level, no ecosystem_type and no taxa). Never use your own knowledge of
+the study.
+
+biodiversity_level: keep only if THIS document itself measures or compares biodiversity at
+  this level, e.g. counts species (Artenvielfalt), compares which species occur together
+  between sites or years (Zusammensetzung der Artengemeinschaft), or analyses genetic
+  variation (Genetische Diversität). Drop it if biodiversity is only background, a goal or a
+  general statement.
+  If unsure: drop.
+
+ecosystem_service: keep only if THIS document examines this service itself: it measures,
+  values or models it. Drop it if the service is only named as a benefit.
+  If unsure: drop.
+
+ecosystem_type: drop only if this ecosystem is clearly just background: mentioned only in the
+  introduction, in a citation, or as one example among many; or if documents like this one
+  clearly get no ecosystem_type in the database.
+  If unsure: keep.
+
+taxa: drop only if this taxon is clearly just background: mentioned only in the
+  introduction, in a citation, or as one example among many; or if documents like this one
+  clearly get no taxa in the database.
+  If unsure: keep.
+
+## Answer
+One JSON object only, no text before or after it, with one decision for every candidate:
+{{"decisions": [{{"id": "<candidate id>", "decision": "keep" | "drop", "reason": "<at most 15 words>"}}]}}
+
+## Text
+<<<
+{document_text}
+>>>

@@ -9,11 +9,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 import pytest
+import yaml
 from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
 
-from data import ID_FIELD
+from data import ID_FIELD, write_jsonl
+from few_shot_examples import FewShotExamples
 from labels import FieldSpec, load_field_specs
-from settings import load_settings
+from retrieval import neighbours_path
+from settings import REPO_ROOT, deep_merge, load_settings
 
 
 @pytest.fixture(scope="session")
@@ -138,14 +141,65 @@ def invented_label_files(tmp_path: Path, specs: dict[str, FieldSpec]) -> dict[st
     return paths
 
 
+INVENTED_TRAIN_IDS = ("TRAIN0001", "TRAIN0002", "TRAIN0003", "TRAIN0004")
+INVENTED_DEV_IDS = ("DOC00001", "DOC00002", "DOC00003", "DOC00004")
+
+
+def write_invented_neighbours(settings: dict[str, Any], tmp_path: Path, enum: Callable[[str, int], str]) -> None:
+    """Invented train references and neighbours_dev.json, as src/retrieval.py writes it, so
+    prompt v4 (the default since 2026-11-19) can be filled. Every dev id gets the first
+    `retrieval.k` train papers; method and k match the settings."""
+    few_shot, retrieval = settings["few_shot"], settings["retrieval"]
+    references = [{ID_FIELD: train_id,
+                   few_shot["title_field"]: f"Invented training paper {train_id}",
+                   few_shot["type_field"]: "article",
+                   "habitat": [enum("habitat", index)],
+                   "taxa": [{"species_group": enum("taxa.species_group", index),
+                             "scientific_name": None, "german_name": f"Erfundene Gruppe {index}"}]}
+                  for index, train_id in enumerate(INVENTED_TRAIN_IDS)]
+    settings["paths"]["references_train"] = tmp_path / "references" / "train.jsonl"
+    settings["paths"]["processed"] = tmp_path / "processed"
+    write_jsonl(references, settings["paths"]["references_train"])
+    neighbours = [{"id": train_id, "similarity": 0.5} for train_id in INVENTED_TRAIN_IDS[:retrieval["k"]]]
+    content = {"split": "dev", "method": retrieval["method"], "k": retrieval["k"], "without_text": [],
+               "neighbours": {document_id: neighbours for document_id in INVENTED_DEV_IDS}}
+    path = neighbours_path(settings, "dev")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(content), encoding="utf-8")
+
+
 @pytest.fixture
 def invented_settings(
-    settings: dict[str, Any], tmp_path: Path, invented_label_files: dict[str, Path]
+    settings: dict[str, Any], tmp_path: Path, invented_label_files: dict[str, Path],
+    enum: Callable[[str, int], str],
 ) -> dict[str, Any]:
-    """The real settings, but every path that holds data points into a temporary folder."""
+    """The real settings, but every path that holds data points into a temporary folder
+    (including invented training examples for prompt v4)."""
     copied = copy.deepcopy(settings)
     copied["paths"].update(invented_label_files)
     copied["paths"]["cache"] = tmp_path / "cache"
     copied["paths"]["docling"] = tmp_path / "docling"
     copied["paths"]["runs"] = tmp_path / "runs"
+    write_invented_neighbours(copied, tmp_path, enum)
     return copied
+
+
+@pytest.fixture
+def invented_examples(invented_settings: dict[str, Any]) -> FewShotExamples:
+    """The training examples of the invented dev documents (what run_pipeline.py loads)."""
+    return FewShotExamples.from_settings(invented_settings, "dev")
+
+
+@pytest.fixture
+def apply_experiment() -> Callable[[dict[str, Any], str], dict[str, Any]]:
+    """apply_experiment(settings, "prompt_v2.yaml") -> a copy of the settings with that
+    experiment file merged on top, as load_settings does, keeping the invented data paths."""
+    def apply(settings: dict[str, Any], experiment_name: str) -> dict[str, Any]:
+        path = REPO_ROOT / "config" / "experiments" / experiment_name
+        override = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        experiment_paths = override.pop("paths", {})
+        merged = deep_merge(copy.deepcopy(settings), override)
+        merged["paths"] = {**settings["paths"],
+                           **{name: (REPO_ROOT / value).resolve() for name, value in experiment_paths.items()}}
+        return merged
+    return apply

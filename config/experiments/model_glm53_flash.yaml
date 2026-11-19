@@ -1,0 +1,7 @@
+# Pipeline F with GLM 5.3 Flash (a third model family, 2026-11-19). Prompt v4,
+# so only the model differs from F v4 (C1 0.5836, C2b 0.3602).
+# Context 1M (GWDG model list), like DeepSeek.
+models:
+  full_text: glm-5.3-flash
+paths:
+  prompt_extraction: config/prompts/extraction_v4.txt

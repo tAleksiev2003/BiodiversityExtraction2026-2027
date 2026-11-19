@@ -28,6 +28,11 @@ because the answers already received are cached.
 
 With the checker switched off (ablation), the vote counts the chunks that name a label
 (only C1 is checked), because there are no verified quotes.
+
+Since 2026-11-19 pipeline F is the main system and B is no longer developed (SPEC.md,
+section 13). B cannot send prompts with training examples (prompt v4, the default), so
+it runs with config/experiments/prompt_v2.yaml (or a file built on it); with the
+defaults it stops with a message that names that file (`unsupported_settings`).
 """
 import json
 import logging
@@ -209,6 +214,24 @@ class DocumentResult:
         }
 
 
+PROMPT_V2_EXPERIMENT = "config/experiments/prompt_v2.yaml"
+
+
+def unsupported_settings(settings: dict[str, Any]) -> str | None:
+    """Why B cannot run with these settings, or None if it can.
+
+    B never fills `{examples}`: its one-chunk papers send F's prompt, which is v4 by
+    default, and examples for chunks were never built (B is no longer developed).
+    """
+    paths = settings["paths"]
+    for template_path in (paths["prompt_extraction"], paths["prompt_extraction_chunked"]):
+        if ExtractionPrompt.from_settings(settings, template_path).uses_examples:
+            return (f"Pipeline B does not support prompts with training examples ({template_path.name}). "
+                    "It is no longer developed (SPEC.md, section 13, 2026-11-19); run it with its last "
+                    f"setting: --experiment {PROMPT_V2_EXPERIMENT} (or an experiment file built on it).")
+    return None
+
+
 class ParallelPipeline:
     """Prepares documents (main thread) and answers chunks (safe to call from several threads)."""
 
@@ -216,6 +239,9 @@ class ParallelPipeline:
                  tokenizer: BaseTokenizer) -> None:
         """`tokenizer` must have `chunking.max_chunk_tokens` as its max_tokens, because the
         chunker cuts at that size (see chunking.load_tokenizer)."""
+        reason = unsupported_settings(settings)
+        if reason is not None:
+            raise ValueError(reason)
         self.client = client
         self.document_dir = document_dir
         self.model: str = settings["models"]["chunked"]

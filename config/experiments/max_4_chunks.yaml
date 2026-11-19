@@ -1,6 +1,12 @@
-# Pipeline B with at most 4 chunks per paper. Since 2026-11-19 this is the default
-# (settings.yaml), so this file changes nothing; it is kept so the commands and run names
-# of 2026-11-19 still work. With the old prompts: add config/experiments/prompt_v2.yaml's paths.
-# Longer papers get larger chunks (up to chunked_part_tokens); one-chunk papers come from F's cache.
+# Pipeline B with at most 4 chunks per paper, its best setting (C1 0.5872, C2b 0.3311 with
+# min_quote_words 3; 0.5781 / 0.3178 with 5). Same as config/experiments/prompt_v2.yaml; kept so
+# the commands and run names of 2026-11-19 still work. Longer papers get larger chunks (up to
+# chunked_part_tokens); one-chunk papers come from F's cache (prompt v2, DeepSeek 4.0).
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt
+models:
+  full_text: deepseek-v4-flash-0731
+  chunked: deepseek-v4-flash-0731
 chunking:
   max_chunks_per_document: 4
