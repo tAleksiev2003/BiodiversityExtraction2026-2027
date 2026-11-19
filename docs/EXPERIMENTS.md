@@ -7,7 +7,9 @@ PDF** (`data/processed/dev_with_pdf.jsonl`), scored with `src/evaluation.py`
 Prompt versions: `config/prompts/README.md`.
 
 **Current best:** pipeline F, prompt v4 (training examples), DeepSeek 4.1:
-**C1 0.6644, C2b 0.3733** (`runs/20261119-140809_full_text_dev_model_deepseek_v41`).
+**C1 0.6644, C2b 0.3733** (`runs/20261119-140809_full_text_dev_model_deepseek_v41`);
+with the post-processing rule on services (section 10): **C2b 0.4130** (measured on the same
+run, to be confirmed by a run from the cache).
 
 > Dev scores are slightly optimistic: prompt, checker settings and model were all chosen on
 > these 100 papers. Expect a few hundredths less on the test set.
@@ -29,6 +31,7 @@ Prompt versions: `config/prompts/README.md`.
 | 8 | 11-19 | F, prompt v4, DeepSeek 4.0 | v2 + examples of the 3 most similar training papers | 0.5836 | 0.3602 | `20261119-134529_full_text_dev_prompt_v4` |
 | 9 | 11-19 | **F, prompt v4, DeepSeek 4.1** | newer model | **0.6644** | **0.3733** | `20261119-140809_full_text_dev_model_deepseek_v41` |
 | 10 | 11-19 | #9 + verifier | second call per paper, keep/drop only | 0.6524 | 0.3603 | `20261119-151706_verify_dev` |
+| 11 | 11-19 | **#9 + service rule** | drop services if no training neighbour has any (section 10) | 0.6644 | **0.4130** | measured on #9; run pending |
 
 
 ---
@@ -177,7 +180,32 @@ matches exact taxon names. The neighbour vote alone is more than twice the basel
   (1.x, 4.x Versorgungsleistungen, 2.x Regulierungs- und Erhaltungsleistungen, 3.x Kulturelle
   Leistungen); 514 train and 8 dev pairs, 0 exceptions.
 
-## 10. Infrastructure
+## 10. Post-processing
+
+Rules after the verbatim checker, before the predictions are written (`src/postprocessing.py`,
+pipeline F only). They only remove labels and need no request.
+
+**Service rule** (`postprocess.drop_services_without_neighbour_support`, default true; off:
+`config/experiments/no_service_rule.yaml`): if a paper has training neighbours and none of
+its 3 neighbours has an ecosystem_service entry, drop all its ecosystem_service entries. A
+paper without neighbours (no first-pages text) keeps its services.
+
+| Where | Neighbours without services: paper has services | At least one neighbour with services: paper has services |
+|---|---|---|
+| dev references (100) | 1 of 64 | 7 of 35 |
+| train (878, 3 nearest other train papers, TF-IDF) | 35 of 525 (6.7 %) | 163 of 353 (46 %) |
+
+| On F v4.1 | service category TP / FP | service term TP / FP | C1 | C2b |
+|---|---|---|---|---|
+| without rule | 5 / 25 | 4 / 29 | 0.6644 | 0.3733 |
+| with rule | 5 / 12 | 4 / 15 | 0.6644 | **0.4130** |
+
+**What we learned:** the rule keeps all correct services and removes about half of the false
+ones; better in 99.8 % of 2,000 bootstrap samples. The pattern holds on train, so it is a
+property of the database, not of the dev set. The dev gain is probably optimistic (dev 1 of
+64 vs train 6.7 %). **Adopted.**
+
+## 11. Infrastructure
 
 | Finding | Consequence |
 |---|---|
@@ -187,7 +215,7 @@ matches exact taxon names. The neighbour vote alone is more than twice the basel
 | 2 Docling workers were not faster than 1 (500 s vs 508 s on 5 papers) | default 1 worker; converting 500 test PDFs takes about 21 h |
 | Qwen3-30B timed out on 240K-token chunks; DeepSeek handled 900K-token parts | – |
 
-## 11. Open
+## 12. Open
 
 - Retry qwen3.5-397b-a17b and glm-5.3-flash (`config/experiments/model_*.yaml`).
 - Test phase: Docling conversion, first pages and neighbours for the 500 test papers.

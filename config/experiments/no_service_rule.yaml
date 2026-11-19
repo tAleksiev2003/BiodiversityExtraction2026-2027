@@ -1,0 +1,6 @@
+# Pipeline F without the post-processing rule on ecosystem services (SPEC.md, section 13,
+# 2026-11-19): ecosystem_service labels are kept even if no training neighbour has one.
+# The rule needs no request, so a run with this file is answered from the cache; compare
+# it with a run with the defaults.
+postprocess:
+  drop_services_without_neighbour_support: false

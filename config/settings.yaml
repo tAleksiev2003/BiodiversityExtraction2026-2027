@@ -84,6 +84,11 @@ parallel:
 merge:
   min_chunks_per_label: 1                   # pipeline B: a label needs a verified quote in at least min(this, chunks of the document) chunks; 1 = union
 
+postprocess:
+  # Pipeline F, after the verbatim checker, before the predictions are written (src/postprocessing.py).
+  # Only drops labels; needs no request, so false (config/experiments/no_service_rule.yaml) comes from the cache.
+  drop_services_without_neighbour_support: true   # 2026-11-19: drop all ecosystem_service labels of a paper if none of its retrieval.k train neighbours has one; a paper without neighbours keeps them. F v4.1: C2b 0.3733 -> 0.4130, C1 unchanged (SPEC.md, section 13). Needs a prompt with training examples (v4)
+
 prompt:
   vocabulary_top_n: 50                      # most frequent measured variables shown to the model
 

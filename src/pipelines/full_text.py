@@ -11,6 +11,9 @@ Per document:
 4. the verbatim checker (C1 to C4) right after every call, with the text of that part;
 5. merge the parts as in pipeline B (C5: verified quotes from any part count).
 
+After all documents: the post-processing rules of src/postprocessing.py (they only drop
+labels), then the predictions are written.
+
 Documents are processed in parallel (src/parallel_runner.py), as many as the LLM client
 may send requests at the same time. The output is sorted by id, so it does not depend
 on the order in which documents finish.
@@ -40,6 +43,7 @@ from llm_client import LLMClient, describe_error
 from output import write_predictions
 from parallel_runner import run_in_parallel
 from pdf_to_text import DOCUMENT_SUFFIX, full_text, load_document
+from postprocessing import ServiceRuleResult, drop_services_without_neighbour_support
 from prompts import ExtractionPrompt
 from rate_limiter import DailyLimitReachedError
 from verbatim_checker import (
@@ -221,6 +225,7 @@ def build_summary(
     wall_clock_seconds: float,
     parallel_requests: int,
     stop_reason: str | None,
+    service_rule: ServiceRuleResult,
 ) -> dict[str, Any]:
     """Numbers for summary.json; everything the team reports back."""
     done = [result for result in results.values() if result.status == STATUS_DONE]
@@ -247,6 +252,7 @@ def build_summary(
         "wall_clock_seconds_per_request": round(wall_clock_seconds / api_requests, 2) if api_requests else None,
         "requests": request_stats,
         "verbatim_check": drop_statistics(check_entries),
+        "service_rule": service_rule.as_dict(),
     }
 
 
@@ -263,6 +269,12 @@ def print_summary(summary: dict[str, Any], client: LLMClient) -> None:
     overall = summary["verbatim_check"]["all_fields"]
     shares = ", ".join(f"{check} {share:.1%}" for check, share in overall["dropped_share"].items())
     print(f"Verbatim checker: {overall['checked']} labels checked, dropped per check: {shares}")
+    rule = summary["service_rule"]
+    if rule["applied"]:
+        print(f"Service rule: {rule['ecosystem_service_entries_dropped']} ecosystem_service entries "
+              f"dropped in {rule['papers_dropped']} papers (no neighbour has services)")
+    else:
+        print(f"Service rule: {rule['reason']}")
     print(client.summary())
     print(f"Wall-clock time: {summary['wall_clock_seconds']:.0f} s with up to "
           f"{summary['parallel_requests']} parallel requests"
@@ -281,7 +293,8 @@ def run_full_text(
 ) -> dict[str, Any]:
     """Process all documents, write the run files and (unless stopped or dry run) the predictions.
 
-    `examples`: the training examples of the split, needed for prompt v4.
+    `examples`: the training examples of the split, needed for prompt v4; the service
+    rule (src/postprocessing.py) reuses their neighbours and train references.
 
     Run files: documents.jsonl and verbatim_check_log.jsonl (written as documents
     finish, so a stopped run keeps them), summary.json, predictions.jsonl + zip.
@@ -309,14 +322,18 @@ def run_full_text(
                           STOP_ERRORS, client.request_stop, on_result)
     wall_clock_seconds = time.perf_counter() - started
 
+    labels_by_document = {document_id: result.labels for document_id, result in run.results.items()}
+    labels_by_document, service_rule = drop_services_without_neighbour_support(
+        labels_by_document, examples, settings)
+
     summary = build_summary(run.results, document_ids, check_entries, client, settings,
-                            wall_clock_seconds, parallel_requests, run.stop_reason)
+                            wall_clock_seconds, parallel_requests, run.stop_reason, service_rule)
     (run_dir / SUMMARY_NAME).write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print_summary(summary, client)
 
     if run.stop_reason is not None or client.dry_run:
         return summary
-    records = [build_record(ID_FIELD, document_id, run.results[document_id].labels, pipeline.rules)
+    records = [build_record(ID_FIELD, document_id, labels_by_document[document_id], pipeline.rules)
                for document_id in sorted(document_ids)]
     paths = settings["paths"]
     zip_path = write_predictions(records, document_ids, run_dir,

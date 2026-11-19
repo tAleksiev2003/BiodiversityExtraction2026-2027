@@ -232,6 +232,7 @@ def test_daily_limit_stops_cleanly_without_predictions(pipeline_settings, enum, 
 
 def test_checker_switched_off_keeps_unverified_labels(pipeline_settings, fake_llm, tmp_path, word_tokenizer, enum):
     pipeline_settings["verbatim_check"]["enabled"] = False
+    pipeline_settings["postprocess"]["drop_services_without_neighbour_support"] = False  # would drop the service
     _, run_dir = run(pipeline_settings, fake_llm, tmp_path, word_tokenizer)
     by_id = {record[ID_FIELD]: record for record in read_jsonl(run_dir / PREDICTIONS_FILENAME)}
     assert by_id["DOC00001"]["biodiversity_level"] == [enum("biodiversity_level", 0)]
@@ -258,3 +259,35 @@ def test_prompt_shows_every_allowed_value_and_keeps_the_text_unchanged(invented_
     assert "Erfundene Variable" in content     # vocabulary from the invented label file
     assert examples in content and "Invented training paper TRAIN0001" in content  # prompt v4
     assert "LEDGER" not in content.upper().split("## TEXT")[0]  # the unused pipeline A section is not sent
+
+
+# --- post-processing: the service rule (src/postprocessing.py) ------------------------------
+
+def test_service_rule_drops_from_the_cache_without_requests(pipeline_settings, enum, specs, tmp_path,
+                                                            word_tokenizer):
+    """The invented neighbours have no services, so the rule drops DOC00001's verified service.
+    A mapped term lets the service pass the checker. The run with the rule comes from the cache
+    of the run without it, and only the service field changes."""
+    llm = InventedLlm(enum, specs["ecosystem_service.term"].allowed_values[0])
+    without_rule = copy.deepcopy(pipeline_settings)
+    without_rule["postprocess"]["drop_services_without_neighbour_support"] = False
+    summary_off, run_off = run(without_rule, llm, tmp_path, word_tokenizer, run_name="without_rule")
+    requests_before = len(llm.prompts)
+
+    summary_on, run_on = run(pipeline_settings, llm, tmp_path, word_tokenizer, run_name="with_rule")
+    assert len(llm.prompts) == requests_before
+    assert summary_on["requests"]["api_requests"] == 0
+
+    before = {record[ID_FIELD]: record for record in read_jsonl(run_off / PREDICTIONS_FILENAME)}
+    after = {record[ID_FIELD]: record for record in read_jsonl(run_on / PREDICTIONS_FILENAME)}
+    assert len(before["DOC00001"]["ecosystem_service"]) == 1
+    assert after["DOC00001"]["ecosystem_service"] == []
+    for document_id, record in before.items():
+        assert {key: value for key, value in after[document_id].items() if key != "ecosystem_service"} == \
+               {key: value for key, value in record.items() if key != "ecosystem_service"}
+
+    assert summary_off["service_rule"]["applied"] is False
+    assert summary_off["service_rule"]["ecosystem_service_entries_dropped"] == 0
+    assert summary_on["service_rule"]["papers_dropped"] == 1
+    assert summary_on["service_rule"]["ecosystem_service_entries_dropped"] == 1
+    assert summary_on["service_rule"]["dropped_per_paper"] == {"DOC00001": 1}

@@ -316,7 +316,9 @@ def test_the_run_prompts_name_every_logged_candidate(verify_settings, source_run
     sent = sorted(candidate_id for messages in llm.verify_prompts
                   for candidate_id, _, _ in CANDIDATE_PATTERN.findall(messages[1]["content"]))
     logged = sorted(entry["candidate_id"] for entry in read_jsonl(run_dir / VERIFY_LOG_NAME))
-    assert sent == logged and len(logged) == 5 + 2  # DOC00001: 5, DOC00002: 2
+    # DOC00001: 4 (its service is dropped by the service rule of the source run: the invented
+    # neighbours have no services, src/postprocessing.py), DOC00002: 2
+    assert sent == logged and len(logged) == 4 + 2
 
 
 def test_a_source_that_cannot_be_rebuilt_keeps_its_prediction(verify_settings, source_run, enum, word_tokenizer):

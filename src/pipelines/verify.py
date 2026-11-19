@@ -4,7 +4,7 @@ Per document:
 1. rebuild what the source F run did, with F's own code and the source run's settings
    (its config.yaml): the same parts, the same prompts, the answers from the cache (a
    client in dry-run mode, so nothing is ever sent for the source run), the verbatim
-   checker and merging. The rebuilt record must equal the source run's prediction;
+   checker, merging and post-processing (src/postprocessing.py). The rebuilt record must equal the source run's prediction;
    otherwise the document is reported as failed and keeps its source prediction;
 2. the labels F kept, except habitat, become candidates C1, C2, ...;
 3. one call per part that holds candidates (one per paper for papers in one call), with
@@ -34,6 +34,7 @@ from llm_client import LLMClient, describe_error
 from output import PREDICTIONS_FILENAME, drop_unscored_subfields, write_predictions
 from parallel_runner import run_in_parallel
 from pdf_to_text import DOCUMENT_SUFFIX, load_document
+from postprocessing import drop_services_without_neighbour_support
 from pipelines.full_text import STOP_ERRORS, SUMMARY_NAME, FullTextPipeline, append_jsonl, part_call
 from runs import load_run_settings
 from verbatim_checker import CheckedLabel, build_record, merge_labels
@@ -156,6 +157,9 @@ class VerifyPipeline:
             labels_per_part.append(checked)
         all_labels = [label for part_labels in labels_per_part for label in part_labels]
         kept, _ = merge_labels(all_labels, self.source_pipeline.checker_config, document_id)
+        # The source run's post-processing, so dropped services are no candidates either.
+        kept = drop_services_without_neighbour_support(
+            {document_id: kept}, self.source_examples, self.source.settings)[0][document_id]
         rebuilt = drop_unscored_subfields(build_record(ID_FIELD, document_id, kept, self.source_pipeline.rules))
         if rebuilt != self.source.predictions[document_id]:
             raise SourceNotRebuiltError("the labels rebuilt from the cache differ from the source predictions")
