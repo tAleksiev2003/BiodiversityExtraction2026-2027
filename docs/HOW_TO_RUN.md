@@ -145,11 +145,11 @@ python3 src/run_pipeline.py parallel --split dev               # all dev documen
 ```
 
 Every paper is cut into chunks of `chunking.max_chunk_tokens` (16,000) tokens; a long
-paper gets larger chunks, so it has at most `chunking.max_chunks_per_document` (20)
+paper gets larger chunks, so it has at most `chunking.max_chunks_per_document` (4)
 chunks, never larger than `models.chunked_part_tokens` (240,000). One request per chunk
 with the chunk prompt (`paths.prompt_extraction_chunked`) and `models.chunked`
 (DeepSeek, the same model as F). A paper that fits into one chunk is the full-text case:
-it sends exactly F's request (full text, prompt v2), so after a run of F its answer comes
+it sends exactly F's request (full text, `paths.prompt_extraction`), so after a run of F its answer comes
 from the cache (`parallel.one_chunk_as_full_text`). Run the dry run first: it prints the
 chunks in total, how many papers are sent as F's request, the median and maximum chunks
 per paper and the papers with enlarged chunks, before any request is spent. The requests

@@ -114,7 +114,7 @@ Baselines, experiments and more: `docs/HOW_TO_RUN.md`.
 | Pipeline | C1 | C2b |
 |---|---|---|
 | F (full text, prompt v2) | 0.5710 | 0.3310 |
-| B (at most 4 chunks) | 0.5872 | 0.3311 |
+| B (at most 4 chunks, chunk prompt v1) | 0.5872 | 0.3311 |
 | most-frequent baseline | 0.2055 | – |
 
 Checker settings: `min_quote_words` 3, `max_quote_words` 60; details in `SPEC.md`, section 13.

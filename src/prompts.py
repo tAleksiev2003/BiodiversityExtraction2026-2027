@@ -12,10 +12,17 @@ value exactly as the schema spells it and no label string is typed into the code
   (from term_to_category.json), so the model can only form consistent pairs (rule R6);
 - `{ecosystem_service_terms}`: all service terms of the schema, one per line;
 - `{variable_vocabulary}`: the `prompt.vocabulary_top_n` most frequent training values;
+- `{<field>_question}` (since prompt v3), e.g. `{taxa_question}`: the guiding question
+  of the database for that field, the `description` of the property in the schema;
+- `{min_quote_words}`, `{max_quote_words}` (since prompt v3): the quote length the
+  verbatim checker accepts (`verbatim_check` in settings.yaml), so prompt and check C3
+  cannot disagree;
 - `{document_id}`, `{chunk_id}`, `{chunk_text}`: the text of one call.
 
 The fixed parts are filled once per run (`ExtractionPrompt.from_settings`); only the
-text-specific placeholders change per call.
+text-specific placeholders change per call. A template may leave out any of these
+placeholders (v1 and v2 have no questions), so older versions give the same prompt as
+before and their answers still come from the cache.
 """
 import json
 import re
@@ -23,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from labels import FieldSpec, load_field_specs, load_term_to_category
+from labels import FieldSpec, load_field_questions, load_field_specs, load_term_to_category
 from llm_cache import Message
 
 SECTION_PATTERN = re.compile(r"^=== (.+?) ===$", re.MULTILINE)
@@ -32,6 +39,7 @@ USER_SECTION = "USER"
 LIST_INDENT = "   "
 ECOSYSTEM_TYPE_FIELD = "ecosystem_type"
 ECOSYSTEM_SERVICE_FIELD = "ecosystem_service"
+QUESTION_PLACEHOLDER_SUFFIX = "_question"
 
 
 def read_sections(template_path: Path) -> dict[str, str]:
@@ -90,7 +98,8 @@ class ExtractionPrompt:
         """`template_path`: default `paths.prompt_extraction` (pipeline F); pipeline B
         passes `paths.prompt_extraction_chunked`. Both use the same placeholders."""
         paths = settings["paths"]
-        specs = load_field_specs([paths["schema_core"], paths["schema_biodiversity"]])
+        schema_paths = [paths["schema_core"], paths["schema_biodiversity"]]
+        specs = load_field_specs(schema_paths)
         term_to_category = load_term_to_category(paths["term_to_category"])
         sections = read_sections(template_path or paths["prompt_extraction"])
         label_lists = {
@@ -106,11 +115,17 @@ class ExtractionPrompt:
                 paths["variable_vocabulary"], settings["prompt"]["vocabulary_top_n"])),
             "ecosystem_service_category_labels": quoted(allowed(specs, f"{ECOSYSTEM_SERVICE_FIELD}.category")),
             "ecosystem_service_terms": one_per_line(allowed(specs, f"{ECOSYSTEM_SERVICE_FIELD}.term")),
+            "min_quote_words": settings["verbatim_check"]["min_quote_words"],
+            "max_quote_words": settings["verbatim_check"]["max_quote_words"],
+        }
+        questions = {
+            field + QUESTION_PLACEHOLDER_SUFFIX: question
+            for field, question in load_field_questions(schema_paths).items()
         }
         # Fill the label lists now and keep the per-call placeholders for later. The
         # per-call placeholders are passed as themselves, so format() leaves them as they are.
         keep_for_later = {name: "{" + name + "}" for name in ("document_id", "chunk_id", "chunk_text")}
-        user_template = sections[USER_SECTION].format(**label_lists, **keep_for_later)
+        user_template = sections[USER_SECTION].format(**label_lists, **questions, **keep_for_later)
         return cls(system_text=sections[SYSTEM_SECTION], user_template=user_template)
 
     def messages(self, document_id: str, chunk_id: str, text: str) -> list[Message]:

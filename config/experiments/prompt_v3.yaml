@@ -1,0 +1,5 @@
+# Prompt v3 (F) and chunk prompt v2 (B), tried on 2026-11-19 and worse than v2 (config/prompts/README.md).
+# Their answers are in the cache, so a run costs 0 requests.
+paths:
+  prompt_extraction: config/prompts/extraction_v3.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v2.txt

@@ -1,0 +1,5 @@
+# Prompt v2 (F) and chunk prompt v1 (B): the defaults again since 2026-11-19 (back from v3).
+# Same as the default; kept so the run names of 2026-11-19 stay reproducible.
+paths:
+  prompt_extraction: config/prompts/extraction_v2.txt
+  prompt_extraction_chunked: config/prompts/extraction_chunk_v1.txt

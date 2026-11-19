@@ -88,6 +88,24 @@ def load_field_specs(schema_paths: list[Path]) -> dict[str, FieldSpec]:
     return merged
 
 
+def load_field_questions(schema_paths: list[Path]) -> dict[str, str]:
+    """{top-level field: guiding question} from the `description` of each schema property.
+
+    The database annotators answered these questions (e.g. "... gemessen?" for
+    biodiversity_level), so prompt v3 shows them to the model word for word.
+    """
+    questions: dict[str, str] = {}
+    for schema_path in schema_paths:
+        for field, property_node in load_schema(schema_path)["properties"].items():
+            question = property_node.get("description", "").strip()
+            if not question:
+                continue
+            if field in questions and questions[field] != question:
+                raise ValueError(f"Field {field!r} has different questions in the schemas ({schema_path})")
+            questions[field] = question
+    return questions
+
+
 def load_term_to_category(path: Path) -> dict[str, dict[str, str]]:
     """Load {field: {term: category}} built by src/scripts/build_term_to_category.py."""
     return json.loads(path.read_text(encoding="utf-8"))

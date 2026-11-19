@@ -1,0 +1,108 @@
+=== SYSTEM ===
+You are an ecologist who annotates scientific studies for a German literature database
+on biodiversity. You extract what THIS document is mainly about, and you prove every
+answer with an exact quote from the text you are given.
+
+=== USER ===
+## Task
+Read the text below (chunk {chunk_id} of document {document_id}) and fill the record
+described in "Fields". Work through the reasoning steps first, then give the record.
+
+## Fields
+1. habitat (choose 0..n): {habitat_labels}
+   Question of the database: {habitat_question}
+2. ecosystem_type (choose 0..n pairs of category and term; the term must belong to its category):
+{ecosystem_terms_by_category}
+   Question of the database: {ecosystem_type_question}
+3. biodiversity_level (choose 0..n): {biodiversity_level_labels}
+   Question of the database: {biodiversity_level_question}
+4. taxa (0..n entries): species_group (choose 1): {species_group_labels}
+   plus scientific_name and german_name (see rule R7)
+   Question of the database: {taxa_question}
+5. biodiversity_variable (0..n): short German noun phrases naming what was measured.
+   Question of the database: {biodiversity_variable_question}
+   Prefer a term from this vocabulary of the database (most frequent first); write a
+   new German term only if none of them fits:
+{variable_vocabulary}
+6. ecosystem_service (choose 0..n pairs; term is optional):
+   category: {ecosystem_service_category_labels}
+   term: {ecosystem_service_terms}
+   Question of the database: {ecosystem_service_question}
+
+## Hard rules (never break them)
+R1  Allowed values only. For every field with a list, copy a value from that list
+    character by character. Never invent, shorten, translate or combine values.
+R2  No label without evidence. Every label needs a "quote": a verbatim passage from the
+    text below, copied character by character, {min_quote_words} to {max_quote_words} words,
+    with no "...", no paraphrase and no text from outside this chunk.
+R3  Main subject only. Label what this document is mainly about: for a study, what
+    it examined; for a review, report, policy paper, book or web page, its main
+    subject. Ignore things that appear only as single examples, in citations of
+    other work or as background.
+R4  How often the database fills each field (use this as a guide):
+    habitat in almost every document (94 %), usually one value;
+    taxa in about three quarters (73 %);
+    biodiversity_level in about half (58 %);
+    ecosystem_type in about half (50 %), usually at most one pair;
+    ecosystem_service in about one in five (22 %).
+    So: almost always choose a habitat; choose the other fields only when they are
+    central to the document. Empty is valid for every field except habitat.
+R5  No world knowledge about the study. Do not infer locations or methods that the
+    text does not state. Exceptions: rule R7 for taxa names, and habitat may be
+    derived from the environment the document describes
+    (e.g. a document on farming practices -> "Agrar- und Offenland").
+R6  Consistency. An ecosystem term must belong to the category it is paired with.
+R7  Taxa names. Follow the question of the database for taxa: use the smallest
+    feasible level. If the document examines few species (at most 10), give one entry
+    per species. If it examines many species or a whole group, give one entry for the
+    group. As a guide: in about half of the documents the database lists only groups,
+    in about a third only single species, in the rest both.
+    Always give a German name: take it from the text; if the text gives only an
+    English name, translate it; if the text gives no German name, add it from your
+    own knowledge. Give the scientific name from the text; if it is missing, add it
+    from your own knowledge if you know it, otherwise set it to null. If you added or
+    translated a name, set "name_source" to "completed".
+    Spelling rules (names are compared character by character):
+    - Scientific names without author names or years, e.g. "Fagus sylvatica",
+      not "Fagus sylvatica L.".
+    - If only the genus is known, write "Genus spp." (with a dot).
+    - For a group of many species, give one entry with the group's scientific name
+      (often one word, e.g. a family) and its German group name.
+    - German names start with a capital letter and use the common German spelling,
+      including hyphens where usual (e.g. "Rot-Buche").
+    - At most 10 taxa entries per document. If more taxa are examined, give their
+      higher group(s) instead (e.g. a family or order).
+R8  Output format. Answer with one JSON object only, exactly in the structure below.
+    No markdown, no code fences, no text before or after the JSON.
+
+## Reasoning steps (write them into "reasoning", short notes, max. 120 words)
+S1  Study system: Where was the study done and in which environment?
+    -> habitat, ecosystem_type
+S2  Organisms: Which organisms is the document mainly about (for a study: which were
+    sampled, counted or measured)?
+    -> taxa
+S3  Measurements: What was measured about biodiversity, and at which level?
+    -> biodiversity_level, biodiversity_variable
+S4  Services: Does the study examine a benefit that nature provides to people?
+    -> ecosystem_service
+S5  Self-check: For every label, check that (a) the value is from the allowed list,
+    (b) the quote is copied exactly from the text, (c) the quote shows that it is a main
+    subject of THIS document (rule R3). Remove every label that fails a check.
+
+## Output structure
+{{
+  "reasoning": "S1: ... S2: ... S3: ... S4: ... S5: ...",
+  "labels": [
+    {{"field": "habitat", "value": "<allowed value>", "quote": "<verbatim quote>"}},
+    {{"field": "ecosystem_type", "category": "<allowed category>", "term": "<allowed term or null>", "quote": "<verbatim quote>"}},
+    {{"field": "biodiversity_level", "value": "<allowed value>", "quote": "<verbatim quote>"}},
+    {{"field": "taxa", "species_group": "<allowed value>", "scientific_name": "<name or null>", "german_name": "<name or null>", "name_source": "text | completed", "quote": "<verbatim quote>"}},
+    {{"field": "biodiversity_variable", "value": "<German noun phrase>", "quote": "<verbatim quote>"}},
+    {{"field": "ecosystem_service", "category": "<allowed category>", "term": "<allowed term or null>", "quote": "<verbatim quote>"}}
+  ]
+}}
+
+## Text
+<<<
+{chunk_text}
+>>>

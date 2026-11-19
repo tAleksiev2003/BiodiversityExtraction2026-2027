@@ -158,6 +158,8 @@ access rules.
      Keep it exactly as written.
   3. The schemas do not link terms to categories. `data/labels/term_to_category.json`
      provides this mapping (built by `src/scripts/build_term_to_category.py`, checked by hand).
+     The 8 service terms that never occur in train are added by the first number of their
+     code (`src/scripts/map_service_terms_by_prefix.py`, run after it; section 13).
 - `data/labels/variable_vocabulary.json`: values of `biodiversity_variable` in the
   training references with counts (built by `src/scripts/build_variable_vocabulary.py`).
   The prompt shows the `prompt.vocabulary_top_n` most frequent values as preferred terms.
@@ -206,14 +208,18 @@ access rules.
 
 ## 6. Prompt
 
-Templates: `paths.prompt_extraction` (pipeline F, currently `extraction_v2.txt`) and
-`paths.prompt_extraction_chunked` (pipeline B, `extraction_chunk_v1.txt`: v2 plus rule R9,
-"you see only one chunk"); versions in `config/prompts/README.md`. Placeholders (`{habitat_labels}`,
-`{ecosystem_terms_by_category}`, `{variable_vocabulary}`, …) are filled by code from the
-schema files and `data/labels/`. The template contains:
+Templates: `paths.prompt_extraction` (pipeline F, currently `extraction_v3.txt`) and
+`paths.prompt_extraction_chunked` (pipeline B, `extraction_chunk_v2.txt`: v3 plus rule R9,
+"you see only one chunk"); versions in `config/prompts/README.md`, the old pair (v2,
+chunk_v1) in `config/experiments/prompt_v2.yaml`. Placeholders (`{habitat_labels}`,
+`{ecosystem_terms_by_category}`, `{variable_vocabulary}`, `{taxa_question}`, …) are filled
+by code from the schema files and `data/labels/`; `{min_quote_words}` and
+`{max_quote_words}` from `verbatim_check` (since v3, so changing them changes the v3
+prompts and costs new requests). The template contains:
 
 1. a role (ecologist annotating a literature database), after Yang et al. (2026);
-2. the fields with their allowed German values;
+2. the fields with their allowed German values and (since v3) the guiding question of
+   the database for each field, the `description` of the property in the schema;
 3. hard rules R1–R8 against hallucination (allowed values only, verbatim quote for every
    label, only what this study examined, empty is valid, no world knowledge except for
    completing taxa names, consistent pairs, JSON only);
@@ -222,8 +228,7 @@ schema files and `data/labels/`. The template contains:
 5. the JSON output structure.
 
 Prompts v1 and v2 still contain a section "ADDITION FOR PIPELINE A" with ledger rules;
-the code never reads it (pipeline A was dropped, section 13). It is removed in the next
-prompt version (`config/prompts/README.md`).
+the code never reads it (pipeline A was dropped, section 13). v3 has no such section.
 
 Parse and validate the answer with `pydantic`. Invalid JSON: retry once with the parse
 error appended, then log and treat the call as empty.
@@ -316,7 +321,7 @@ The team learns from this code, so it must be easy to read and to extend:
 5. **Start values** of `quote_match_threshold`, `min_quote_words`, `max_quote_words`,
    `max_chunk_tokens`: tune on a few dev documents.
 6. ~~**Chunk size for pipeline B**~~ Closed 2026-11-18: 16,000 tokens, at most 20 chunks
-   per document, cap 240,000 (section 3, step 2, and section 13). Still to do: report
+   per document (4 since 2026-11-19), cap 240,000 (section 3, step 2, and section 13). Still to do: report
    results separately for short and long documents.
 7. **Rate limiter and the server's hour:** the limiter assumes a 60-minute window, but
    SAIA refills the hour gradually (section 5). Should it probe the server (e.g. one
@@ -367,3 +372,12 @@ Rules:
 | 2026-11-19 | Pipeline B with DeepSeek and at most 4 chunks per paper (`config/experiments/max_4_chunks.yaml`): C1 0.5781, C2b 0.3178 (F: 0.5711, 0.3315) | dev, 100 papers; same model as F, so the chunking alone is compared: about equal; B better on biodiversity_level and species_group, F better on taxa names | finding |
 | 2026-11-19 | Verbatim checker: `min_quote_words` 3 (was 5) | Almost all C3 drops in B were quotes under 5 words (taxon names, short terms). B: C1 0.5781 → 0.5872, C2b 0.3178 → 0.3311; F unchanged (0.5710 / 0.3310); 1 word lowers F's C1 to 0.5579. `max_quote_words` 40-120 makes no difference with prompt v2 | adopted |
 | 2026-11-19 | DeepSeek on SAIA was unreachable for about an hour (even a tiny request hung, Qwen answered at once); runs stopped cleanly and continued from the cache | risk for the test week: process the test PDFs early | finding |
+| 2026-11-19 | Prompt v3 shows the schema's guiding question under each field (`{<field>_question}`, filled from the `description` of the schema properties habitat, ecosystem_type, biodiversity_level, taxa, biodiversity_variable, ecosystem_service) | the prompt listed only the allowed values. Dev: the model sets biodiversity_level in 72 of 100 papers, the database in 41; the question asks where biodiversity is "gemessen" | adopted, not run yet |
+| 2026-11-19 | Prompt v3, R7: always give a German name (from the text, translated from English, or added from own knowledge with `name_source` "completed"); scientific name if known, else null | train (908 references): 99.8 % of taxa entries have a German name, 89 % a scientific name; dev: 79 missing German names do not occur in the text, so they must be added or translated, as the schema's taxa question demands | adopted, not run yet |
+| 2026-11-19 | Prompt v3, R7: smallest feasible level (few species, at most 10: one entry each; many species or a group: one group entry), with the base rate "about half only groups, about a third only species"; the cap of 10 taxa stays | train: of 585 papers with taxa, 51 % list only groups, 31 % only species, 18 % both; 95 % have at most 11 single species | adopted, not run yet |
+| 2026-11-19 | Scientific names stay without author citation (R7 spelling rules unchanged) | train: only 3 of 2,281 scientific names carry an author citation | adopted |
+| 2026-11-19 | Prompt v3, R2: quote length from `verbatim_check.min_quote_words` / `max_quote_words` (`{min_quote_words}`, `{max_quote_words}`) | prompt v2 said 5-40 words, the checker allows 3-60 | adopted, not run yet; checker experiments on quote length now change the v3 prompt and cost requests |
+| 2026-11-19 | Defaults: `extraction_v3.txt` (F), `extraction_chunk_v2.txt` (B, v3 plus R9); v3 drops the unused section "ADDITION FOR PIPELINE A". `config/experiments/prompt_v2.yaml` runs v2 / chunk_v1 from the cache | findings above | adopted, not run yet |
+| 2026-11-19 | Pipeline B default `chunking.max_chunks_per_document` 4 (was 20); `max_4_chunks.yaml` is kept and now equals the default | B with at most 4 chunks is the best B setting: C1 0.5872, C2b 0.3311 (min_quote_words 3) | adopted |
+| 2026-11-19 | `term_to_category.json`: the 8 ecosystem_service terms without an entry get the category of their code's first number (1.x Versorgungsleistungen, 2.x Regulierungs- und Erhaltungsleistungen, 3.x Kulturelle Leistungen); the rule is read from the mapped terms, never typed (`src/scripts/map_service_terms_by_prefix.py`) | all 59 mapped terms follow the rule (also 4.x -> Versorgungsleistungen); check against all train and dev reference pairs: to be run by the team | adopted; reference check pending |
+| 2026-11-19 | Prompt v3 (schema questions, taxa base rate, always German names) rejected; defaults back to v2 / chunk_v1; v3 kept as `config/experiments/prompt_v3.yaml` | F: C1 0.5710 → 0.5122, C2b 0.3310 → 0.3180; B: 0.5872 → 0.5505, 0.3311 → 0.2881. Taxa too coarse (e.g. 16 species → one group), 131 instead of 96 ecosystem terms ("betrachtet"), biodiversity_level not better. Lesson: one change per run | adopted |
