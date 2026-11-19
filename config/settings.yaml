@@ -94,6 +94,14 @@ postprocess:
   # Pipeline F, after the verbatim checker, before the predictions are written (src/postprocessing.py).
   # Only drops labels; needs no request, so a run with other values comes from the cache.
   min_confidence: {}                        # {field: threshold}, e.g. {biodiversity_level: 0.4}; drops labels whose confidence (prompt v5, field prompts) is lower; a label without confidence is kept; {} = off. Choose with src/scripts/sweep_confidence.py
+  drop_ecosystem_type_for_land_only_habitats: true   # 2026-11-19: for a paper whose predicted habitats are non-empty and all in land_only_habitats, drop its ecosystem_type labels with a term in ecosystem_type_terms_dropped_for_land_only_habitats. The idea came from the dev error analysis (most ecosystem_type false positives were "Äcker und Ackerbrachen" in papers without any ecosystem_type); the rates come from train. Dev: C1 0.6732 -> 0.6881, C2b unchanged; bootstrap 95 %, but the term list was chosen after seeing dev, so optimistic. Runs after min_confidence, before the service rule. Off: config/experiments/no_eco_type_rule.yaml (SPEC.md, section 13)
+  land_only_habitats:                       # train: share of papers with an ecosystem_type per habitat: Agrar 23 %, Boden 10 %, Urbane Räume 20 % vs Binnengewässer 73 %, Küsten 58 %; checked against the habitat schema when the rule is on
+    - Agrar- und Offenland
+    - Boden
+    - Urbane Räume
+  ecosystem_type_terms_dropped_for_land_only_habitats:   # terms the rule drops; null = a label without term; checked against the schema. Train: land-only papers get specific semi-natural types (Trockenrasen 21, Grün- und Freiflächen 7, Niedermoore 5, ...) but "Äcker und Ackerbrachen" in only 23 of 282 (8 %; random halves 6-11 %, before/after 2015 8 % / 8 %). `all` = every ecosystem_type label (first version, superseded: C1 0.6818; config/experiments/eco_type_rule.yaml)
+    - Äcker und Ackerbrachen
+    - null
   drop_services_without_neighbour_support: true   # 2026-11-19: drop all ecosystem_service labels of a paper if none of its retrieval.k train neighbours has one; a paper without neighbours keeps them. F v4.1: C2b 0.3733 -> 0.4130, C1 unchanged (SPEC.md, section 13). Needs a prompt with training examples (v4)
 
 prompt:

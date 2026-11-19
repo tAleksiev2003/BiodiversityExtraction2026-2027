@@ -3,8 +3,10 @@
 Reads labels_with_confidence.jsonl of a run (src/label_file.py) and rebuilds its
 predictions for every threshold. The candidates are the labels the run would write
 without thresholds: kept by the verbatim checker, not replaced by a field prompt and not
-dropped by the service rule (the service rule does not depend on confidence). Labels the
-run's own thresholds dropped are candidates again. A label without a confidence is kept
+dropped by the service rule or the ecosystem_type rule (the service rule does not depend
+on confidence; the ecosystem_type rule depends on the predicted habitats, which a habitat
+threshold could change, so with both a habitat threshold and that rule on the sweep is an
+approximation). Labels the run's own thresholds dropped are candidates again. A label without a confidence is kept
 at every threshold, as in src/postprocessing.py.
 
 A threshold applies to all labels of a field (the unit of the setting); a field with
@@ -41,7 +43,7 @@ from data import ID_FIELD, index_by_id, load_references, read_jsonl  # noqa: E40
 from evaluation import C1_FIELDS, C2B_FIELDS, evaluate, score_field  # noqa: E402
 from label_file import LABEL_FILE_NAME  # noqa: E402
 from output import PREDICTIONS_FILENAME  # noqa: E402
-from postprocessing import RULE_SERVICES  # noqa: E402
+from postprocessing import RULE_ECOSYSTEM_TYPE, RULE_SERVICES  # noqa: E402
 
 THRESHOLDS = [round(step / 10, 1) for step in range(10)]   # 0.0, 0.1, ..., 0.9
 FOLDS = 5
@@ -63,7 +65,7 @@ def parent_fields() -> list[str]:
 
 def is_candidate(line: dict[str, Any]) -> bool:
     return (line["kept_by_checker"] and not line["replaced_by_field_prompt"]
-            and line["postprocessing_rule"] != RULE_SERVICES)
+            and line["postprocessing_rule"] not in (RULE_SERVICES, RULE_ECOSYSTEM_TYPE))
 
 
 def load_candidates(run_dir: Path) -> dict[str, list[Candidate]]:

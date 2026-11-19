@@ -291,3 +291,49 @@ def test_service_rule_drops_from_the_cache_without_requests(pipeline_settings, e
     assert summary_on["service_rule"]["papers_dropped"] == 1
     assert summary_on["service_rule"]["ecosystem_service_entries_dropped"] == 1
     assert summary_on["service_rule"]["dropped_per_paper"] == {"DOC00001": 1}
+
+
+# --- post-processing: the ecosystem_type rule (src/postprocessing.py) ---------------------------
+
+class InventedLlmWithEcosystemType(InventedLlm):
+    """As InventedLlm, but DOC00001 also gets an ecosystem_type (category only, so C2 passes)."""
+
+    def answer(self, messages: list[dict[str, str]]) -> str:
+        raw = super().answer(messages)
+        if "of document DOC00001" not in messages[1]["content"]:
+            return raw  # unchanged, including the deliberately invalid answer of DOC00003
+        answer = json.loads(raw)
+        answer["labels"].append({"field": "ecosystem_type", "category": self.enum("ecosystem_type.category", 0),
+                                 "term": None, "quote": SAMPLING})
+        return json.dumps(answer)
+
+
+def test_ecosystem_type_rule_from_the_cache_and_in_the_summary(pipeline_settings, enum, specs, tmp_path,
+                                                               word_tokenizer):
+    """Every habitat counts as land-only here, so each paper with a habitat loses its
+    ecosystem_type labels; the run comes from the cache of the run without the rule, and the
+    summary counts what was dropped."""
+    llm = InventedLlmWithEcosystemType(enum, specs["ecosystem_service.term"].allowed_values[0])
+    without_rule = copy.deepcopy(pipeline_settings)
+    without_rule["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] = False
+    summary_off, run_off = run(without_rule, llm, tmp_path, word_tokenizer, run_name="without_rule")
+    requests_before = len(llm.prompts)
+
+    with_rule = copy.deepcopy(pipeline_settings)
+    assert with_rule["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] is True  # the default
+    with_rule["postprocess"]["land_only_habitats"] = list(specs["habitat"].allowed_values)
+    summary_on, run_on = run(with_rule, llm, tmp_path, word_tokenizer, run_name="with_rule")
+    assert len(llm.prompts) == requests_before and summary_on["requests"]["api_requests"] == 0
+
+    before = {record[ID_FIELD]: record for record in read_jsonl(run_off / PREDICTIONS_FILENAME)}
+    after = {record[ID_FIELD]: record for record in read_jsonl(run_on / PREDICTIONS_FILENAME)}
+    expected_drops = {document_id: len(record["ecosystem_type"]) for document_id, record in before.items()
+                      if record["habitat"] and record["ecosystem_type"]}
+    assert expected_drops  # the invented answers must give the rule something to do
+    for document_id, record in before.items():
+        expected = record["ecosystem_type"] if document_id not in expected_drops else []
+        assert after[document_id]["ecosystem_type"] == expected
+
+    assert summary_off["ecosystem_type_rule"]["applied"] is False
+    assert summary_on["ecosystem_type_rule"]["dropped_per_paper"] == expected_drops
+    assert summary_on["ecosystem_type_rule"]["ecosystem_type_entries_dropped"] == sum(expected_drops.values())

@@ -148,6 +148,10 @@ def verify_settings(invented_settings: dict[str, Any]) -> dict[str, Any]:
     copied["models"]["full_text_part_tokens"] = PART_TOKENS
     copied["models"]["full_text"] = EXTRACTION_MODEL
     copied["verify"]["model"] = VERIFY_MODEL
+    # DOC00001 has only the first habitat (a land-only habitat), so the ecosystem_type rule
+    # (default since 2026-11-19) would drop its ecosystem_type in the source run; these tests
+    # need that label as a verify candidate.
+    copied["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] = False
     for document_id, sections in INVENTED_DOCUMENTS.items():
         save_document(build_document(sections), copied["paths"]["docling"] / "dev" / f"{document_id}.json")
     return copied

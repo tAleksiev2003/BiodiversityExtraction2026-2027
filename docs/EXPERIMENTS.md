@@ -7,10 +7,11 @@ PDF** (`data/processed/dev_with_pdf.jsonl`), scored with `src/evaluation.py`
 Prompt versions: `config/prompts/README.md`.
 
 **Current best (the defaults):** pipeline F, prompt v4 (training examples), DeepSeek 4.1,
-the post-processing rule on services (section 10) and the field prompt level_v1 for
-biodiversity_level (section 11): **C1 0.6732, C2b 0.4202**
-(`runs/20261119-161424_full_text_dev_level_prompt_v1`). **Not robust:** better than without
-the level prompt in only 73 % of bootstrap samples.
+the post-processing rule on services (section 10), the field prompt level_v1 for
+biodiversity_level (section 11) and the post-processing rule on ecosystem_type (section 13):
+**C1 0.6818, C2b 0.4202** (`runs/20261119-173148_full_text_dev_eco_type_rule`).
+**Not robust:** the ecosystem_type rule is better than without it in only 77 % of bootstrap
+samples (C1), the level prompt in 73 %.
 
 > Dev scores are slightly optimistic: prompt, checker settings and model were all chosen on
 > these 100 papers. Expect a few hundredths less on the test set.
@@ -35,6 +36,9 @@ the level prompt in only 73 % of bootstrap samples.
 | 11 | 11-19 | #9 + service rule | drop services if no training neighbour has any (section 10) | 0.6644 | 0.4130 | `20261119-154747_full_text_dev` |
 | 12 | 11-19 | **#11 + level prompt v1** | one extra call per part for biodiversity_level (section 11); not robust (bootstrap 73 %) | **0.6732** | **0.4202** | `20261119-161424_full_text_dev_level_prompt_v1` |
 | 13 | 11-19 | #11 with prompt v5 | confidence per label (section 12); without threshold / cross-validated threshold | 0.6234 / 0.6133 | 0.4181 / 0.4515 | `20261119-162000_full_text_dev_prompt_v5` |
+| 14 | 11-19 | #12 with prompt v6 | v4 + rule R9 "Broad overviews" (section 13); rejected | 0.6606 | 0.4338 | `20261119-171235_full_text_dev_prompt_v6` |
+| 15 | 11-19 | **#12 + ecosystem_type rule** | drop ecosystem_type if all habitats are farmland/soil/urban (section 13); adopted, not robust (bootstrap 77 %) | **0.6818** | **0.4202** | `20261119-173148_full_text_dev_eco_type_rule` |
+| 16 | 11-19 | #14 + ecosystem_type rule | both (section 13); rejected with v6 | 0.6754 | 0.4338 | `20261119-173302_full_text_dev_prompt_v6_eco_type_rule` |
 
 
 ---
@@ -47,8 +51,11 @@ the level prompt in only 73 % of bootstrap samples.
 | **v2** | "what THIS document is mainly about"; field base rates from train; habitat may be derived; at most 10 taxa | 0.5711 | 0.3315 | adopted |
 | v3 | schema's guiding question per field; taxa base rate ("half only groups"); always a German name; quote length from settings | 0.5122 | 0.3180 | **rejected** |
 | **v4** | v2 + labels of the 3 most similar training papers | 0.5836 | 0.3602 | adopted |
+| v5 | v4 + confidence per label (rule R9) | 0.6234 | 0.4181 | rejected (section 12) |
+| v6 | v4 + rule R9 "Broad overviews" | 0.6606 | 0.4338 | **rejected** (section 13) |
 
-(v1 and v2 with checker 40 / 60 words, DeepSeek 4.0; v3 and v4 with checker 3–60 words.)
+(v1 and v2 with checker 40 / 60 words, DeepSeek 4.0; v3 and v4 with checker 3–60 words; v5 and v6 with
+DeepSeek 4.1, service rule, v6 also with level_v1, so compare v6 with #12: 0.6732 / 0.4202.)
 
 **What we learned**
 
@@ -282,7 +289,107 @@ with #12: C2b 0.4308 but C1 0.6706, and two main calls per paper: not used.
 **Decision: rejected.** Lesson: R9 changed two things at once (confidence and more liberal
 answers). `postprocess.min_confidence`, `labels_with_confidence.jsonl` and the sweep script stay.
 
-## 13. Infrastructure
+## 13. Prompt v6 and the ecosystem_type rule
+
+Both start from the defaults (#12: F, prompt v4, DeepSeek 4.1, service rule, level_v1). Their
+reasons come from the training labels (section 14).
+
+- **Prompt v6** (`config/prompts/extraction_v6.txt`, `config/experiments/prompt_v6.yaml`): v4 plus
+  one rule, R9 "Broad overviews": national or EU strategies, red lists, status reports,
+  assessments, textbooks and invasive-species overviews get every habitat they cover, almost
+  never an ecosystem_type, taxa only if one group is the main subject. Why: on dev, 24 of the
+  35 habitat FN of #12 come from 7 broad overviews. 107 new main calls (109 requests with 2
+  retries); the level calls came from the cache.
+- **ecosystem_type rule** (`postprocess.drop_ecosystem_type_for_land_only_habitats`, default
+  true since this experiment; off: `config/experiments/no_eco_type_rule.yaml`; with v6:
+  `prompt_v6_eco_type_rule.yaml`):
+  if a paper's predicted habitats are non-empty and all in `postprocess.land_only_habitats`
+  (Agrar- und Offenland, Boden, Urbane Räume), drop all its ecosystem_type labels. Runs after
+  `min_confidence`, before the service rule; 0 requests. It dropped 13 entries in 13 papers in
+  both runs.
+
+| field F1 | #12 defaults | #14 v6 | #15 rule | #16 v6 + rule |
+|---|---|---|---|---|
+| habitat | 0.8207 | **0.8276** | 0.8207 | **0.8276** |
+| ecosystem_type.category | 0.7216 | 0.6737 | **0.7381** | 0.7073 |
+| ecosystem_type.term | 0.6606 | 0.5905 | **0.6875** | 0.6304 |
+| taxa.species_group | 0.7074 | **0.7560** | 0.7074 | **0.7560** |
+| taxa.scientific_name | 0.3314 | **0.3647** | 0.3314 | **0.3647** |
+| taxa.german_name | 0.3308 | **0.3598** | 0.3308 | **0.3598** |
+| biodiversity_level | 0.4554 | 0.4554 | 0.4554 | 0.4554 |
+| ecosystem_service.term | 0.2963 | 0.2667 | 0.2963 | 0.2667 |
+| **C1** | 0.6732 | 0.6606 | **0.6818** | 0.6754 |
+| **C2b** | 0.4202 | **0.4338** | 0.4202 | **0.4338** |
+
+| TP / FP / FN | #12 defaults | #14 v6 | #15 rule | #16 v6 + rule |
+|---|---|---|---|---|
+| habitat | 103 / 10 / 35 | 120 / 32 / 18 | 103 / 10 / 35 | 120 / 32 / 18 |
+| ecosystem_type.category | 35 / 16 / 11 | 32 / 17 / 14 | 31 / 7 / 15 | 29 / 7 / 17 |
+| ecosystem_type.term | 36 / 20 / 17 | 31 / 21 / 22 | 33 / 10 / 20 | 29 / 10 / 24 |
+| taxa.species_group | 81 / 42 / 25 | 79 / 24 / 27 | 81 / 42 / 25 | 79 / 24 / 27 |
+
+Bootstrap (2,000 resamples of the 100 papers, seed 1, against #12):
+
+| | C1 better in | C2b better in |
+|---|---|---|
+| ecosystem_type rule (#15) | 77 % | – (C2b unchanged) |
+| prompt v6 (#14) | 21 % | 77 % |
+
+### ecosystem_type rule: adopted, not robust (bootstrap 77 %)
+
+The rule removes 13 ecosystem_type entries in 13 papers; about two thirds were false
+(category FP 16 → 7 vs TP 35 → 31, F1 0.722 → 0.738; term FP 20 → 10 vs TP 36 → 33, F1
+0.661 → 0.688): C1 +0.009, C2b unchanged (ecosystem_type is not part of C2b).
+**Decision: adopted as default, not robust (bootstrap 77 %).** Reasons: the rule was derived
+from train before dev was looked at (217 of 282 train papers whose habitats are only Agrar- und
+Offenland, Boden or Urbane Räume have no ecosystem_type, section 14), it needs no request,
+and it only drops labels. Off: `no_eco_type_rule.yaml` (0.6732 / 0.4202 from the cache).
+
+### Prompt v6: rejected
+
+- **Habitat:** FN 35 → 18 but FP 10 → 32 (F1 0.821 → 0.828). R9 found 4 of the 7 broad
+  overviews in dev, but also treated 5 other documents as overviews and gave them 4–6
+  habitats (21 FP).
+- **Why: the rule was checked in the wrong direction.** In train, P(overview | >= 4 habitats)
+  is high: all 23 such papers are overviews. But the prompt applies the rule the other way:
+  it sees an overview and adds habitats, so what matters is P(>= 4 habitats | overview), and
+  that is low. Whether an overview gets all habitats is inconsistent in the database:
+
+  | train, bibtex_type | papers | with >= 4 habitats | with one habitat |
+  |---|---|---|---|
+  | book | 29 | 0 | – |
+  | techreport | 54 | 9 | 34 |
+
+- **Side effects** (fields R9 does not target): taxa.species_group 0.707 → 0.756 (false
+  groups in overview-like documents 16 → 1), taxa.scientific_name 0.331 → 0.365,
+  taxa.german_name 0.331 → 0.360; but ecosystem_type.category 0.722 → 0.674 and term 0.661 →
+  0.590 (TP lost in normal studies), so C1 −0.013. biodiversity_level is unchanged because
+  level_v1 replaces it. With the ecosystem_type rule (#16): 0.6754 / 0.4338, still below the
+  rule alone for C1.
+- **Decision: rejected.** **Lesson: check a rule in the direction in which the prompt applies
+  it** (here P(label | document type), not P(document type | label)). Like v5, one rule also
+  changed fields it did not target.
+
+## 14. Conventions learned from the training labels
+
+Counted on the train references (908 papers) by the team; they explain the database's
+practice, which the schema questions do not.
+
+| Convention | Evidence (train) | Used in |
+|---|---|---|
+| ~~Broad overviews get every habitat they cover~~ (wrong direction, see section 13) | all 23 papers with >= 4 habitats are such overviews, i.e. P(overview \| >= 4 habitats) is high; but P(>= 4 habitats \| overview) is low: books 0 of 29, techreports 9 of 54 (34 have one habitat) | prompt v6, R9 (rejected) |
+| Broad overviews almost never get an ecosystem_type | 1 of the 23 (counted on papers with >= 4 habitats only) | prompt v6, R9 (rejected) |
+| Broad overviews get taxa only if one group is their main subject | 7 of the 23 have taxa (same caveat) | prompt v6, R9 (rejected) |
+| Papers on farmland, soil or urban areas only rarely get an ecosystem_type | 217 of 282 papers whose habitats are only Agrar- und Offenland, Boden or Urbane Räume have none (77 %); share with an ecosystem_type per habitat: Agrar- und Offenland 23 %, Boden 10 %, Urbane Räume 20 %, vs Binnengewässer und Auen 73 %, Küsten und Küstengewässer 58 % | ecosystem_type rule (default; same direction as applied: habitats → no ecosystem_type) |
+| Papers whose 3 nearest training papers have no ecosystem_service rarely have one | 35 of 525 (6.7 %) vs 163 of 353 (46 %) | service rule (section 10) |
+| About half of the papers with taxa list only groups | 51 % only groups, 31 % only species, 18 % both; 95 % at most 11 single species | prompt v3 R7 (rejected) |
+
+On dev: 24 of the 35 habitat FN of #12 come from 7 broad overviews.
+
+**Check before using a convention:** the direction. A post-processing rule or prompt rule
+uses P(label | what it can see); a count of P(what it can see | label) does not support it.
+
+## 15. Infrastructure
 
 | Finding | Consequence |
 |---|---|
@@ -292,7 +399,13 @@ answers). `postprocess.min_confidence`, `labels_with_confidence.jsonl` and the s
 | 2 Docling workers were not faster than 1 (500 s vs 508 s on 5 papers) | default 1 worker; converting 500 test PDFs takes about 21 h |
 | Qwen3-30B timed out on 240K-token chunks; DeepSeek handled 900K-token parts | – |
 
-## 14. Open
+## 16. Open
 
 - Retry qwen3.5-397b-a17b and glm-5.3-flash (`config/experiments/model_*.yaml`).
 - Test phase: Docling conversion, first pages and neighbours for the 500 test papers.
+- Flaky test: `tests/test_parallel_pipeline.py::test_daily_limit_stops_cleanly_without_predictions`
+  (pipeline B) fails with `llm_client.RunStoppedError` in about half of the full pytest runs
+  (5 of 10 on 2026-11-19; seen twice before). Likely cause (not verified): a race in
+  `src/parallel_runner.py`. Another thread's `RunStoppedError` can come out of `as_completed`
+  before the `DailyLimitReachedError` that caused the stop; `run.stop_reason` is then still
+  None, so the error is re-raised as unexpected. Not related to post-processing (B does not run it).

@@ -1,0 +1,9 @@
+# Prompt v6 (config/experiments/prompt_v6.yaml, rejected) plus the first, superseded version of
+# the post-processing rule on ecosystem_type (config/experiments/eco_type_rule.yaml: drop ALL
+# ecosystem_type labels of papers whose habitats are only farmland/soil/urban areas), as run on
+# 2026-11-19 (C1 0.6754, C2b 0.4338). Comes from the cache of the v6 run.
+paths:
+  prompt_extraction: config/prompts/extraction_v6.txt
+postprocess:
+  drop_ecosystem_type_for_land_only_habitats: true
+  ecosystem_type_terms_dropped_for_land_only_habitats: all

@@ -9,3 +9,7 @@ models:
 # Made before the level prompt became the default (2026-11-19): without it, as when it was run.
 field_prompts:
   biodiversity_level: null
+
+# Made before the ecosystem_type rule became the default (2026-11-19): without it, as when it was run.
+postprocess:
+  drop_ecosystem_type_for_land_only_habitats: false

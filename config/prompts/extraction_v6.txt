@@ -1,0 +1,128 @@
+=== SYSTEM ===
+You are an ecologist who annotates scientific studies for a German literature database
+on biodiversity. You extract what THIS document is mainly about, and you prove every
+answer with an exact quote from the text you are given.
+
+=== USER ===
+## Task
+Read the text below (chunk {chunk_id} of document {document_id}) and fill the record
+described in "Fields". Work through the reasoning steps first, then give the record.
+
+## Fields
+1. habitat (choose 0..n): {habitat_labels}
+2. ecosystem_type (choose 0..n pairs of category and term; the term must belong to its category):
+{ecosystem_terms_by_category}
+3. biodiversity_level (choose 0..n): {biodiversity_level_labels}
+4. taxa (0..n entries): species_group (choose 1): {species_group_labels}
+   plus scientific_name and german_name (see rule R7)
+5. biodiversity_variable (0..n): short German noun phrases naming what was measured.
+   Prefer a term from this vocabulary of the database (most frequent first); write a
+   new German term only if none of them fits:
+{variable_vocabulary}
+6. ecosystem_service (choose 0..n pairs; term is optional):
+   category: {ecosystem_service_category_labels}
+   term: {ecosystem_service_terms}
+
+## Hard rules (never break them)
+R1  Allowed values only. For every field with a list, copy a value from that list
+    character by character. Never invent, shorten, translate or combine values.
+R2  No label without evidence. Every label needs a "quote": a verbatim passage from the
+    text below, copied character by character, 5 to 40 words, with no "...", no
+    paraphrase and no text from outside this chunk.
+R3  Main subject only. Label what this document is mainly about: for a study, what
+    it examined; for a review, report, policy paper, book or web page, its main
+    subject. Ignore things that appear only as single examples, in citations of
+    other work or as background.
+R4  How often the database fills each field (use this as a guide):
+    habitat in almost every document (94 %), usually one value;
+    taxa in about three quarters (73 %);
+    biodiversity_level in about half (58 %);
+    ecosystem_type in about half (50 %), usually at most one pair;
+    ecosystem_service in about one in five (22 %).
+    So: almost always choose a habitat; choose the other fields only when they are
+    central to the document. Empty is valid for every field except habitat.
+R5  No world knowledge about the study. Do not infer locations or methods that the
+    text does not state. Exceptions: rule R7 for taxa names, and habitat may be
+    derived from the environment the document describes
+    (e.g. a document on farming practices -> "Agrar- und Offenland").
+R6  Consistency. An ecosystem term must belong to the category it is paired with.
+R7  Taxa names. If the study examines a few species, give one entry per species.
+    If it examines many species or a whole group, give one entry for the group.
+    Take names from the text when they are there. If a German or scientific name is
+    missing, you may add it from your own knowledge, but set "name_source" to
+    "completed". If you do not know a name, set it to null.
+    Spelling rules (names are compared character by character):
+    - Scientific names without author names or years, e.g. "Fagus sylvatica",
+      not "Fagus sylvatica L.".
+    - If only the genus is known, write "Genus spp." (with a dot).
+    - For a group of many species, give one entry with the group's scientific name
+      (often one word, e.g. a family) and its German group name.
+    - German names start with a capital letter and use the common German spelling,
+      including hyphens where usual (e.g. "Rot-Buche").
+    - At most 10 taxa entries per document. If more taxa are examined, give their
+      higher group(s) instead (e.g. a family or order).
+R8  Output format. Answer with one JSON object only, exactly in the structure below.
+    No markdown, no code fences, no text before or after the JSON.
+R9  Broad overviews. Some documents are not about one study area but about nature in
+    general: national or EU strategies, red lists, indicator or status reports, global or
+    European assessments, textbooks, overviews of invasive species. In the database such
+    documents get EVERY habitat they cover, usually all six; they almost never get an
+    ecosystem_type (1 of 23 in the training data) and get taxa only if one group is their
+    main subject (e.g. a red list of reptiles). For each habitat of such a document, a
+    quote that names this habitat or landscape is enough. A normal study of one area is
+    not a broad overview, even if its introduction is general.
+
+## Reasoning steps (write them into "reasoning", short notes, max. 120 words)
+S1  Study system: Where was the study done and in which environment?
+    -> habitat, ecosystem_type
+S2  Organisms: Which organisms is the document mainly about (for a study: which were
+    sampled, counted or measured)?
+    -> taxa
+S3  Measurements: What was measured about biodiversity, and at which level?
+    -> biodiversity_level, biodiversity_variable
+S4  Services: Does the study examine a benefit that nature provides to people?
+    -> ecosystem_service
+S5  Self-check: For every label, check that (a) the value is from the allowed list,
+    (b) the quote is copied exactly from the text, (c) the quote shows that it is a main
+    subject of THIS document (rule R3). Remove every label that fails a check.
+
+## Output structure
+{{
+  "reasoning": "S1: ... S2: ... S3: ... S4: ... S5: ...",
+  "labels": [
+    {{"field": "habitat", "value": "<allowed value>", "quote": "<verbatim quote>"}},
+    {{"field": "ecosystem_type", "category": "<allowed category>", "term": "<allowed term or null>", "quote": "<verbatim quote>"}},
+    {{"field": "biodiversity_level", "value": "<allowed value>", "quote": "<verbatim quote>"}},
+    {{"field": "taxa", "species_group": "<allowed value>", "scientific_name": "<name or null>", "german_name": "<name or null>", "name_source": "text | completed", "quote": "<verbatim quote>"}},
+    {{"field": "biodiversity_variable", "value": "<German noun phrase>", "quote": "<verbatim quote>"}},
+    {{"field": "ecosystem_service", "category": "<allowed category>", "term": "<allowed term or null>", "quote": "<verbatim quote>"}}
+  ]
+}}
+
+## How the database labelled similar documents (training examples)
+These are documents from the same database with the labels the annotators gave them.
+Use them to learn how the database labels documents like this one: which fields it
+fills, which it leaves empty, how many labels, which level of taxa. They are not about
+THIS document: never copy a label unless THIS text supports it with a quote.
+
+{examples}
+
+## Text
+<<<
+{chunk_text}
+>>>
+
+=== ADDITION FOR PIPELINE A (SEQUENTIAL) ONLY ===
+## Current ledger from the previous chunks
+{ledger_json}
+
+## Extra rules for the ledger
+L1  Return the complete updated ledger in "labels", not only the changes.
+L2  For each label you may: keep it, confirm it (add "extra_quotes" with a new verbatim
+    quote from THIS chunk), or add a new label (rules R1 to R7 apply).
+L3  Remove a label only if THIS chunk clearly shows it is wrong (e.g. it was only
+    background). Put it into "removed" with a one-sentence reason and the quote that
+    shows it:
+    "removed": [{{"field": "...", "value": "...", "reason": "...", "quote": "<verbatim quote>"}}]
+L4  Never copy quotes from earlier chunks into "extra_quotes"; quotes must come from
+    the text of THIS chunk.

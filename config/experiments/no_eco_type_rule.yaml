@@ -1,0 +1,7 @@
+# Pipeline F without the post-processing rule on ecosystem_type (default since 2026-11-19,
+# SPEC.md, section 13): no ecosystem_type label is dropped for papers whose habitats are all
+# in postprocess.land_only_habitats. Reproduces the defaults before the rule
+# (runs/20261119-170919_full_text_dev: C1 0.6732, C2b 0.4202). The rule needs no request,
+# so a run with this file is answered from the cache.
+postprocess:
+  drop_ecosystem_type_for_land_only_habitats: false

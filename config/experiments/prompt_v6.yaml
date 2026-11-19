@@ -1,0 +1,10 @@
+# Prompt v6 (pipeline F): v4 plus rule R9 "Broad overviews" (config/prompts/README.md).
+# Everything else as the defaults: DeepSeek 4.1, field prompt level_v1 for biodiversity_level
+# and the service rule stay on. Only the main calls are new (about one request per paper);
+# the level calls do not depend on the main prompt, so they come from the cache.
+paths:
+  prompt_extraction: config/prompts/extraction_v6.txt
+
+# Made before the ecosystem_type rule became the default (2026-11-19): without it, as when it was run.
+postprocess:
+  drop_ecosystem_type_for_land_only_habitats: false

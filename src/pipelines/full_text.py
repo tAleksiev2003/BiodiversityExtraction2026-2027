@@ -343,7 +343,7 @@ def build_summary(
         "requests": request_stats,
         "verbatim_check": drop_statistics(check_entries),
         "field_prompts": field_prompt_summary(results, field_prompt_names),
-        **postprocessed.summary(),   # min_confidence, service_rule
+        **postprocessed.summary(),   # min_confidence, ecosystem_type_rule, service_rule
     }
 
 
@@ -384,6 +384,13 @@ def print_summary(summary: dict[str, Any], client: LLMClient) -> None:
     if confidence["applied"]:
         print(f"min_confidence {confidence['thresholds']}: {confidence['labels_dropped']} labels dropped "
               f"in {confidence['papers_with_drops']} papers")
+    ecosystem_type_rule = summary["ecosystem_type_rule"]
+    if ecosystem_type_rule["applied"]:
+        print(f"Ecosystem_type rule: {ecosystem_type_rule['ecosystem_type_entries_dropped']} ecosystem_type entries "
+              f"dropped in {ecosystem_type_rule['papers_dropped']} papers (only habitats "
+              f"{ecosystem_type_rule['land_only_habitats']}; terms {ecosystem_type_rule['terms_dropped']})")
+    else:
+        print(f"Ecosystem_type rule: {ecosystem_type_rule['reason']}")
     rule = summary["service_rule"]
     if rule["applied"]:
         print(f"Service rule: {rule['ecosystem_service_entries_dropped']} ecosystem_service entries "

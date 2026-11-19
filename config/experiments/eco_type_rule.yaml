@@ -1,0 +1,10 @@
+# First, superseded version of the post-processing rule on ecosystem_type (src/postprocessing.py,
+# SPEC.md, section 13), as run on 2026-11-19 (C1 0.6818, C2b 0.4202,
+# runs/20261119-173148_full_text_dev_eco_type_rule): a paper whose predicted habitats are all in
+# postprocess.land_only_habitats (and at least one) loses ALL its ecosystem_type labels.
+# Superseded by the default, which drops only the terms in
+# postprocess.ecosystem_type_terms_dropped_for_land_only_habitats (C1 0.6881).
+# The rule needs no request, so this run comes from the cache.
+postprocess:
+  drop_ecosystem_type_for_land_only_habitats: true
+  ecosystem_type_terms_dropped_for_land_only_habitats: all

@@ -30,6 +30,7 @@ from evaluate_neighbours import vote_record, votes_needed  # noqa: E402
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 PROMPT_V2_EXPERIMENT = REPO_ROOT / "config" / "experiments" / "prompt_v2.yaml"
 PROMPT_V4_EXPERIMENT = REPO_ROOT / "config" / "experiments" / "prompt_v4.yaml"
+PROMPT_V6_EXPERIMENT = REPO_ROOT / "config" / "experiments" / "prompt_v6.yaml"
 SECTION_HEADING = "## How the database labelled similar documents (training examples)"
 TEXT_HEADING = "## Text"
 
@@ -266,6 +267,48 @@ def test_v4_needs_examples(invented_settings):
     assert prompt.uses_examples
     with pytest.raises(ValueError):
         prompt.messages("DOC00001", "1/1", "Invented text.")
+
+
+# --- prompt v6 = v4 plus rule R9 "Broad overviews" ----------------------------------------------
+
+def rule_r9(template: str) -> str:
+    """The text of rule R9, from its first line up to the next section heading."""
+    return template[template.index("R9  Broad overviews"):template.index("\n## Reasoning steps")]
+
+
+def test_v6_template_is_v4_plus_rule_r9():
+    # The only change of v6 is one rule, so its effect on dev is the effect of that rule.
+    v4 = load_settings(PROMPT_V4_EXPERIMENT)["paths"]["prompt_extraction"].read_text(encoding="utf-8")
+    v6 = load_settings(PROMPT_V6_EXPERIMENT)["paths"]["prompt_extraction"].read_text(encoding="utf-8")
+    assert v6.replace(rule_r9(v6), "", 1) == v4
+
+
+def test_v6_experiment_keeps_the_other_defaults_of_its_run(settings):
+    v6_settings = load_settings(PROMPT_V6_EXPERIMENT)
+    assert v6_settings["paths"]["prompt_extraction"].name == "extraction_v6.txt"
+    v6_settings["paths"]["prompt_extraction"] = settings["paths"]["prompt_extraction"]
+    # Run before the ecosystem_type rule became the default (2026-11-19), so it pins the rule off.
+    assert v6_settings["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] is False
+    v6_settings["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] = True
+    assert v6_settings == settings  # same model, level prompt and service rule as the defaults
+
+
+def test_v6_renders_with_every_placeholder_filled(invented_settings):
+    text = "Invented text with {braces} and {examples}."
+    v4 = prompt_with(invented_settings, PROMPT_V4_EXPERIMENT).messages("DOC00001", "1/1", text, "EXAMPLES")
+    v6_prompt = prompt_with(invented_settings, PROMPT_V6_EXPERIMENT)
+    assert v6_prompt.uses_examples
+    v6 = v6_prompt.messages("DOC00001", "1/1", text, "EXAMPLES")
+    assert v6[0] == v4[0]  # system message unchanged
+    user = v6[1]["content"]
+    assert re.search(r"\{[a-z_]+\}", user.replace(text, "")) is None
+    assert user.replace(rule_r9(user), "", 1) == v4[1]["content"]
+    assert user.count("EXAMPLES") == 1 and text in user
+
+
+def test_v6_needs_examples(invented_settings):
+    with pytest.raises(ValueError):
+        prompt_with(invented_settings, PROMPT_V6_EXPERIMENT).messages("DOC00001", "1/1", "Invented text.")
 
 
 def test_pipeline_f_sends_each_document_its_own_examples(invented_settings, train_references, tmp_path,
