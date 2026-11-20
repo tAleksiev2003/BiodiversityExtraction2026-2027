@@ -174,38 +174,16 @@ def _get_docling_converter() -> Any:
     return _DOCLING_CONVERTER
 
 
-def extract_docling_sections(
+def _split_markdown_to_sections(
+    md_text: str,
     zot_id: str,
     rec: dict[str, Any],
     pdf_dir: Path,
 ) -> list[dict[str, Any]]:
-    """
-    Converts a PDF with IBM Docling (cached as Markdown under `data/parsed_text/docling_dev/`),
-    splits by Markdown headings while dropping References/Bibliography, and groups into
-    <= 4 semantic sections. Falls back to `extract_semantic_sections` on error.
-    """
-    cache_dir = pdf_dir.parent.parent / "parsed_text" / "docling_dev"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{zot_id}.md"
-    pdf_path = pdf_dir / f"{zot_id}.pdf"
-
-    md_text = ""
-    if cache_file.exists():
-        md_text = cache_file.read_text(encoding="utf-8", errors="ignore")
-    elif pdf_path.exists():
-        try:
-            conv = _get_docling_converter()
-            res = conv.convert(str(pdf_path))
-            md_text = res.document.export_to_markdown()
-            if md_text.strip():
-                cache_file.write_text(md_text, encoding="utf-8")
-        except Exception as exc:
-            print(f"[Docling fallback for {zot_id}: {exc}]", flush=True)
-
+    """Splits Markdown by headings, strips References/Appendices, and groups into <= 4 blocks."""
     if not md_text.strip():
         return extract_semantic_sections(zot_id, rec, pdf_dir)
 
-    # Split Markdown by headings and drop reference/acknowledgement sections
     stop_re = re.compile(
         r"^(references|bibliography|literatur(?:verzeichnis)?|acknowledg?ments?|danksagung|appendix|anhang)\b",
         re.IGNORECASE,
@@ -233,7 +211,6 @@ def extract_docling_sections(
     if not raw_sections:
         return extract_semantic_sections(zot_id, rec, pdf_dir)
 
-    # Group into up to 4 balanced sections so prompt budget stays clean
     if len(raw_sections) <= 4:
         return [{"section_name": h[:60], "text": t} for h, t in raw_sections]
 
@@ -247,6 +224,57 @@ def extract_docling_sections(
     return grouped[:4]
 
 
+def extract_markdown_cached_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+    cache_subdir: str,
+    convert_fn: Any = None,
+) -> list[dict[str, Any]]:
+    """Loads cached Markdown from `data/parsed_text/<cache_subdir>/` or runs `convert_fn`."""
+    cache_dir = pdf_dir.parent.parent / "parsed_text" / cache_subdir
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{zot_id}.md"
+    pdf_path = pdf_dir / f"{zot_id}.pdf"
+
+    md_text = ""
+    if cache_file.exists():
+        md_text = cache_file.read_text(encoding="utf-8", errors="ignore")
+    elif convert_fn is not None and pdf_path.exists():
+        try:
+            md_text = convert_fn(pdf_path)
+            if md_text.strip():
+                cache_file.write_text(md_text, encoding="utf-8")
+        except Exception as exc:
+            print(f"[{cache_subdir} fallback for {zot_id}: {exc}]", flush=True)
+
+    return _split_markdown_to_sections(md_text, zot_id, rec, pdf_dir)
+
+
+def extract_docling_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+) -> list[dict[str, Any]]:
+    """Uses cached Docling Markdown (`docling_dev/`) or runs Docling on the fly."""
+    return extract_markdown_cached_sections(
+        zot_id,
+        rec,
+        pdf_dir,
+        "docling_dev",
+        lambda p: _get_docling_converter().convert(str(p)).document.export_to_markdown(),
+    )
+
+
+def extract_marker_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+) -> list[dict[str, Any]]:
+    """Uses cached Marker Markdown (`marker_dev/`), falling back to PyMuPDF if missing."""
+    return extract_markdown_cached_sections(zot_id, rec, pdf_dir, "marker_dev", None)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -254,6 +282,7 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=2, help="Number of kNN training anchors")
     parser.add_argument("--grobid-url", default=None)
     parser.add_argument("--docling", action="store_true", help="Use IBM Docling Markdown parser")
+    parser.add_argument("--marker", action="store_true", help="Use Marker PDF Markdown cache")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -287,8 +316,14 @@ def main() -> None:
         client = RobustOpenAICompatClient(args.provider, actual_model, args.temperature, args.rpm)
 
     model_slug = actual_model.replace("/", "_").replace(":", "_")
-    parser_suffix = "_docling" if args.docling else ("_grobid" if args.grobid_url else "")
-    parser_label = " + Docling" if args.docling else (" + GROBID" if args.grobid_url else "")
+    if args.marker:
+        parser_suffix, parser_label = "_marker", " + Marker"
+    elif args.docling:
+        parser_suffix, parser_label = "_docling", " + Docling"
+    elif args.grobid_url:
+        parser_suffix, parser_label = "_grobid", " + GROBID"
+    else:
+        parser_suffix, parser_label = "", ""
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}): {actual_model}"
 
@@ -313,7 +348,9 @@ def main() -> None:
             continue
 
         rec = gold[zot_id]
-        if args.docling:
+        if args.marker:
+            sections = extract_marker_sections(zot_id, rec, pdf_dir)
+        elif args.docling:
             sections = extract_docling_sections(zot_id, rec, pdf_dir)
         elif args.grobid_url:
             sections = extract_grobid_chunks(zot_id, rec, pdf_dir, args.grobid_url)
