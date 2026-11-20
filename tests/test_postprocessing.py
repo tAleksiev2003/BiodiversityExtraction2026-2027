@@ -12,9 +12,9 @@ import pytest
 from data import ID_FIELD
 from few_shot_examples import FewShotExamples
 from postprocessing import (
-    NOT_APPLIED_ECOSYSTEM_TYPE_OFF, NOT_APPLIED_NO_EXAMPLES, NOT_APPLIED_SWITCHED_OFF, RULE_ECOSYSTEM_TYPE,
-    RULE_MIN_CONFIDENCE, drop_ecosystem_type_for_land_only_habitats, drop_services_without_neighbour_support,
-    land_only_habitats, postprocess)
+    ALL_ECOSYSTEM_TYPE_TERMS, NOT_APPLIED_ECOSYSTEM_TYPE_OFF, NOT_APPLIED_NO_EXAMPLES, NOT_APPLIED_SWITCHED_OFF,
+    RULE_ECOSYSTEM_TYPE, RULE_MIN_CONFIDENCE, drop_ecosystem_type_for_land_only_habitats,
+    drop_services_without_neighbour_support, ecosystem_type_terms_dropped, land_only_habitats, postprocess)
 from prompts import ECOSYSTEM_SERVICE_FIELD, ECOSYSTEM_TYPE_FIELD
 from settings import REPO_ROOT, load_settings
 from verbatim_checker import CheckedLabel
@@ -110,10 +110,12 @@ def test_experiment_file_switches_the_rule_off(settings, apply_experiment):
 
 # --- the ecosystem_type rule for papers with land-only habitats --------------------------------
 
-PAPER_LAND_ONLY = "PAPER101"     # only land habitats -> ecosystem_type dropped
+PAPER_LAND_ONLY = "PAPER101"     # only land habitats -> listed terms dropped
 PAPER_MIXED = "PAPER102"         # one land habitat, one other -> kept
 PAPER_NO_HABITAT = "PAPER103"    # no habitat -> kept
 PAPER_OTHER_ONLY = "PAPER104"    # only a habitat outside the land set -> kept
+RULE_KEY = "drop_ecosystem_type_for_land_only_habitats"
+TERMS_KEY = "ecosystem_type_terms_dropped_for_land_only_habitats"
 
 
 def land_and_other_habitats(settings: dict[str, Any], specs) -> tuple[list[str], list[str]]:
@@ -123,29 +125,46 @@ def land_and_other_habitats(settings: dict[str, Any], specs) -> tuple[list[str],
     return land, other
 
 
+def listed_and_unlisted_term(settings: dict[str, Any], specs) -> tuple[str, str]:
+    """A configured (dropped) term and a schema term the rule keeps, without typing a name."""
+    listed = [term for term in settings["postprocess"][TERMS_KEY] if term is not None]
+    unlisted = [term for term in specs["ecosystem_type.term"].allowed_values if term not in listed]
+    return listed[0], unlisted[0]
+
+
 def habitat_label(value: str) -> CheckedLabel:
     return CheckedLabel("habitat", (value,), value, "quote")
+
+
+def ecosystem_type_label(category: str, term: str | None) -> CheckedLabel:
+    entry = {"category": category, "term": term}
+    return CheckedLabel(ECOSYSTEM_TYPE_FIELD, (category, term), entry, "quote")
+
+
+def terms_of(labels: list[CheckedLabel]) -> list[str | None]:
+    return [label.entry["term"] for label in labels if label.field == ECOSYSTEM_TYPE_FIELD]
 
 
 @pytest.fixture
 def rule_on(settings: dict[str, Any]) -> dict[str, Any]:
     switched_on = copy.deepcopy(settings)
-    switched_on["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] = True
+    switched_on["postprocess"][RULE_KEY] = True
     return switched_on
 
 
 @pytest.fixture
 def habitat_papers(settings, specs, enum) -> dict[str, list[CheckedLabel]]:
-    """Every paper has two ecosystem_type labels and one taxon; the habitats differ."""
+    """Every paper has three ecosystem_type labels (a listed term, no term, an unlisted term)
+    and one taxon; the habitats differ."""
     land, other = land_and_other_habitats(settings, specs)
-    ecosystem_types = [{"category": enum("ecosystem_type.category", 0), "term": None},
-                       {"category": enum("ecosystem_type.category", 1), "term": None}]
+    listed, unlisted = listed_and_unlisted_term(settings, specs)
     taxon = {"species_group": enum("taxa.species_group", 0), "scientific_name": None, "german_name": "Erfundene Art"}
 
     def paper(habitats: list[str]) -> list[CheckedLabel]:
         return ([habitat_label(habitat) for habitat in habitats]
-                + [CheckedLabel(ECOSYSTEM_TYPE_FIELD, (entry["category"], entry["term"]), entry, "quote")
-                   for entry in ecosystem_types]
+                + [ecosystem_type_label(enum("ecosystem_type.category", 0), listed),
+                   ecosystem_type_label(enum("ecosystem_type.category", 1), None),
+                   ecosystem_type_label(enum("ecosystem_type.category", 2), unlisted)]
                 + [CheckedLabel("taxa", ("Erfundene Art",), taxon, "quote")])
 
     return {PAPER_LAND_ONLY: paper(land), PAPER_MIXED: paper([land[0], other[0]]),
@@ -159,21 +178,43 @@ def test_land_habitats_are_schema_values(settings, specs):
     assert land_only_habitats(settings) == frozenset(land)
 
 
-def test_ecosystem_type_dropped_for_land_only_habitats(rule_on, habitat_papers):
+def test_dropped_terms_are_schema_values_or_no_term(settings, specs):
+    configured = settings["postprocess"][TERMS_KEY]
+    assert None in configured  # labels without term are dropped
+    named = [term for term in configured if term is not None]
+    assert named and set(named) <= set(specs["ecosystem_type.term"].allowed_values)
+    assert ecosystem_type_terms_dropped(settings) == frozenset(configured)
+
+
+def test_only_listed_terms_dropped_for_land_only_habitats(rule_on, habitat_papers, settings, specs):
+    _, unlisted = listed_and_unlisted_term(settings, specs)
     kept, result = drop_ecosystem_type_for_land_only_habitats(habitat_papers, rule_on)
-    assert ECOSYSTEM_TYPE_FIELD not in fields_of(kept[PAPER_LAND_ONLY])
-    assert fields_of(kept[PAPER_LAND_ONLY]) == [field for field in fields_of(habitat_papers[PAPER_LAND_ONLY])
-                                                if field != ECOSYSTEM_TYPE_FIELD]
+    assert terms_of(kept[PAPER_LAND_ONLY]) == [unlisted]  # the specific type stays
+    assert "taxa" in fields_of(kept[PAPER_LAND_ONLY]) and "habitat" in fields_of(kept[PAPER_LAND_ONLY])
     assert result.applied
     assert result.dropped_entries == {PAPER_LAND_ONLY: 2}
     assert result.as_dict()["papers_dropped"] == 1
     assert result.as_dict()["ecosystem_type_entries_dropped"] == 2
+    assert None in result.as_dict()["terms_dropped"]
 
 
 @pytest.mark.parametrize("paper", [PAPER_MIXED, PAPER_NO_HABITAT, PAPER_OTHER_ONLY])
 def test_ecosystem_type_kept_otherwise(rule_on, habitat_papers, paper):
     kept, _ = drop_ecosystem_type_for_land_only_habitats(habitat_papers, rule_on)
     assert kept[paper] == habitat_papers[paper]
+
+
+def test_first_version_drops_every_ecosystem_type(rule_on, habitat_papers):
+    # `all` (eco_type_rule.yaml) and a missing entry (copied config.yaml of runs 15 and 16) both
+    # give the first, superseded version.
+    rule_on["postprocess"][TERMS_KEY] = ALL_ECOSYSTEM_TYPE_TERMS
+    without_entry = copy.deepcopy(rule_on)
+    del without_entry["postprocess"][TERMS_KEY]
+    for settings in (rule_on, without_entry):
+        kept, result = drop_ecosystem_type_for_land_only_habitats(habitat_papers, settings)
+        assert ECOSYSTEM_TYPE_FIELD not in fields_of(kept[PAPER_LAND_ONLY])
+        assert result.dropped_entries == {PAPER_LAND_ONLY: 3}
+        assert result.as_dict()["terms_dropped"] == ALL_ECOSYSTEM_TYPE_TERMS
 
 
 def test_ecosystem_type_rule_does_not_change_its_input(rule_on, habitat_papers):
@@ -183,16 +224,16 @@ def test_ecosystem_type_rule_does_not_change_its_input(rule_on, habitat_papers):
 
 
 def test_ecosystem_type_rule_is_on_by_default(settings, habitat_papers):
-    # Default since 2026-11-19 (SPEC.md, section 13); not robust (bootstrap 77 %).
-    assert settings["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] is True
+    # Default since 2026-11-19 (SPEC.md, section 13), with the term list.
+    assert settings["postprocess"][RULE_KEY] is True
     kept, result = drop_ecosystem_type_for_land_only_habitats(habitat_papers, settings)
     assert result.applied and result.dropped_entries == {PAPER_LAND_ONLY: 2}
-    assert ECOSYSTEM_TYPE_FIELD not in fields_of(kept[PAPER_LAND_ONLY])
+    assert len(terms_of(kept[PAPER_LAND_ONLY])) == 1
 
 
 def test_ecosystem_type_rule_switched_off_changes_nothing(settings, habitat_papers):
     switched_off = copy.deepcopy(settings)
-    switched_off["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] = False
+    switched_off["postprocess"][RULE_KEY] = False
     kept, result = drop_ecosystem_type_for_land_only_habitats(habitat_papers, switched_off)
     assert kept == habitat_papers
     assert not result.applied and result.reason == NOT_APPLIED_ECOSYSTEM_TYPE_OFF
@@ -202,13 +243,20 @@ def test_run_without_the_setting_keeps_the_rule_off(settings, habitat_papers):
     # The copied config.yaml of runs made before the rule existed has no such entry
     # (src/pipelines/verify.py rebuilds those runs), so a missing entry means off.
     old_run = copy.deepcopy(settings)
-    del old_run["postprocess"]["drop_ecosystem_type_for_land_only_habitats"]
+    del old_run["postprocess"][RULE_KEY]
     kept, result = drop_ecosystem_type_for_land_only_habitats(habitat_papers, old_run)
     assert kept == habitat_papers and not result.applied
 
 
 def test_unknown_land_habitat_is_an_error(rule_on, habitat_papers):
     rule_on["postprocess"]["land_only_habitats"] = ["Kein Habitat"]
+    with pytest.raises(ValueError):
+        drop_ecosystem_type_for_land_only_habitats(habitat_papers, rule_on)
+
+
+@pytest.mark.parametrize("terms", [["Kein Ökosystemtyp"], []])
+def test_unknown_or_empty_term_list_is_an_error(rule_on, habitat_papers, terms):
+    rule_on["postprocess"][TERMS_KEY] = terms
     with pytest.raises(ValueError):
         drop_ecosystem_type_for_land_only_habitats(habitat_papers, rule_on)
 
@@ -220,55 +268,56 @@ def test_ecosystem_type_rule_runs_after_min_confidence_and_is_in_the_summary(rul
     paper[1] = CheckedLabel("habitat", (other[0],), other[0], "quote", confidence=0.1)
     rule_on["postprocess"]["min_confidence"] = {"habitat": 0.5}
     result = postprocess({PAPER_MIXED: paper}, None, rule_on)
-    assert ECOSYSTEM_TYPE_FIELD not in fields_of(result.labels_by_document[PAPER_MIXED])
-    dropped = [label for label in paper if label.field == ECOSYSTEM_TYPE_FIELD]
+    assert len(terms_of(result.labels_by_document[PAPER_MIXED])) == 1
+    dropped = [label for label in paper if label.field == ECOSYSTEM_TYPE_FIELD
+               and label not in result.labels_by_document[PAPER_MIXED]]
+    assert len(dropped) == 2
     assert all(result.rule_that_dropped(PAPER_MIXED, label) == RULE_ECOSYSTEM_TYPE for label in dropped)
     assert result.rule_that_dropped(PAPER_MIXED, paper[1]) == RULE_MIN_CONFIDENCE
     assert result.summary()[RULE_ECOSYSTEM_TYPE]["ecosystem_type_entries_dropped"] == 2
 
 
-@pytest.mark.parametrize("experiment, prompt_name", [("eco_type_rule.yaml", "extraction_v4.txt"),
-                                                     ("prompt_v6_eco_type_rule.yaml", "extraction_v6.txt")])
-def test_experiment_files_switch_the_ecosystem_type_rule_on(settings, apply_experiment, experiment, prompt_name):
-    merged = apply_experiment(settings, experiment)
-    assert merged["postprocess"]["drop_ecosystem_type_for_land_only_habitats"] is True
-    assert merged["paths"]["prompt_extraction"].name == prompt_name
-    assert merged["postprocess"]["drop_services_without_neighbour_support"] is True
-    assert merged["field_prompts"] == settings["field_prompts"]
-
-
-# --- experiment files and the new default (2026-11-19) ----------------------------------------
+# --- experiment files and the default (2026-11-19) ----------------------------------------------
 
 EXPERIMENTS_DIR = REPO_ROOT / "config" / "experiments"
-RULE_KEY = "drop_ecosystem_type_for_land_only_habitats"
-# Files whose purpose is this rule, or that do not run pipeline F's post-processing with their
-# own settings (src/run_verify.py uses the copied settings of its source run).
-WITH_THE_RULE = {"eco_type_rule.yaml", "prompt_v6_eco_type_rule.yaml"}
-NOT_PINNED = WITH_THE_RULE | {"no_eco_type_rule.yaml", "verify_without_taxa.yaml"}
+# The first, superseded version of the rule (drop every ecosystem_type), as run on 2026-11-19.
+FIRST_VERSION = {"eco_type_rule.yaml": "extraction_v4.txt", "prompt_v6_eco_type_rule.yaml": "extraction_v6.txt"}
+# Files that do not pin the rule off: the rule's own files, and verify_without_taxa.yaml
+# (src/run_verify.py uses the copied settings of its source run).
+NOT_PINNED = set(FIRST_VERSION) | {"no_eco_type_rule.yaml", "verify_without_taxa.yaml"}
 EARLIER_EXPERIMENTS = sorted(path.name for path in EXPERIMENTS_DIR.glob("*.yaml") if path.name not in NOT_PINNED)
 
 
-def without_rule(settings: dict[str, Any]) -> dict[str, Any]:
+def with_rule_value(settings: dict[str, Any], **values: Any) -> dict[str, Any]:
     changed = copy.deepcopy(settings)
-    changed["postprocess"][RULE_KEY] = False
+    changed["postprocess"].update(values)
     return changed
 
 
 def test_no_eco_type_rule_equals_the_defaults_without_the_rule(settings):
-    assert load_settings(EXPERIMENTS_DIR / "no_eco_type_rule.yaml") == without_rule(settings)
+    expected = with_rule_value(settings, **{RULE_KEY: False})
+    assert load_settings(EXPERIMENTS_DIR / "no_eco_type_rule.yaml") == expected
 
 
-def test_eco_type_rule_experiment_equals_the_defaults(settings):
-    assert load_settings(EXPERIMENTS_DIR / "eco_type_rule.yaml") == settings
+@pytest.mark.parametrize("experiment, prompt_name", FIRST_VERSION.items())
+def test_first_version_experiments_drop_every_ecosystem_type(settings, experiment, prompt_name):
+    pinned = load_settings(EXPERIMENTS_DIR / experiment)
+    assert pinned["paths"]["prompt_extraction"].name == prompt_name
+    assert pinned["postprocess"][RULE_KEY] is True
+    assert pinned["postprocess"][TERMS_KEY] == ALL_ECOSYSTEM_TYPE_TERMS
+    assert ecosystem_type_terms_dropped(pinned) is None  # every term
 
 
-def test_prompt_v6_eco_type_rule_is_prompt_v6_with_the_rule(settings):
+def test_eco_type_rule_experiment_is_the_defaults_with_the_first_version(settings):
+    expected = with_rule_value(settings, **{TERMS_KEY: ALL_ECOSYSTEM_TYPE_TERMS})
+    assert load_settings(EXPERIMENTS_DIR / "eco_type_rule.yaml") == expected
+
+
+def test_prompt_v6_eco_type_rule_is_prompt_v6_with_the_first_version(settings):
     v6 = load_settings(EXPERIMENTS_DIR / "prompt_v6.yaml")
     v6_with_rule = load_settings(EXPERIMENTS_DIR / "prompt_v6_eco_type_rule.yaml")
-    assert v6["postprocess"][RULE_KEY] is False and v6_with_rule["postprocess"][RULE_KEY] is True
-    assert v6_with_rule["paths"]["prompt_extraction"].name == "extraction_v6.txt"
-    v6["postprocess"][RULE_KEY] = True
-    assert v6 == v6_with_rule
+    assert v6["postprocess"][RULE_KEY] is False
+    assert with_rule_value(v6, **{RULE_KEY: True, TERMS_KEY: ALL_ECOSYSTEM_TYPE_TERMS}) == v6_with_rule
 
 
 @pytest.mark.parametrize("experiment", EARLIER_EXPERIMENTS)

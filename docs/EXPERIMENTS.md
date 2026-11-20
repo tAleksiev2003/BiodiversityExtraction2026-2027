@@ -8,10 +8,11 @@ Prompt versions: `config/prompts/README.md`.
 
 **Current best (the defaults):** pipeline F, prompt v4 (training examples), DeepSeek 4.1,
 the post-processing rule on services (section 10), the field prompt level_v1 for
-biodiversity_level (section 11) and the post-processing rule on ecosystem_type (section 13):
-**C1 0.6818, C2b 0.4202** (`runs/20261119-173148_full_text_dev_eco_type_rule`).
-**Not robust:** the ecosystem_type rule is better than without it in only 77 % of bootstrap
-samples (C1), the level prompt in 73 %.
+biodiversity_level (section 11) and the post-processing rule on ecosystem_type, second
+version (section 13): **C1 0.6881, C2b 0.4202** (`runs/20261119-180347_full_text_dev`).
+The ecosystem_type rule is better than without it in 95 % of bootstrap samples (C1), but its
+term list was chosen after seeing dev, so this is optimistic; the level prompt is **not
+robust** (73 %).
 
 > Dev scores are slightly optimistic: prompt, checker settings and model were all chosen on
 > these 100 papers. Expect a few hundredths less on the test set.
@@ -37,8 +38,9 @@ samples (C1), the level prompt in 73 %.
 | 12 | 11-19 | **#11 + level prompt v1** | one extra call per part for biodiversity_level (section 11); not robust (bootstrap 73 %) | **0.6732** | **0.4202** | `20261119-161424_full_text_dev_level_prompt_v1` |
 | 13 | 11-19 | #11 with prompt v5 | confidence per label (section 12); without threshold / cross-validated threshold | 0.6234 / 0.6133 | 0.4181 / 0.4515 | `20261119-162000_full_text_dev_prompt_v5` |
 | 14 | 11-19 | #12 with prompt v6 | v4 + rule R9 "Broad overviews" (section 13); rejected | 0.6606 | 0.4338 | `20261119-171235_full_text_dev_prompt_v6` |
-| 15 | 11-19 | **#12 + ecosystem_type rule** | drop ecosystem_type if all habitats are farmland/soil/urban (section 13); adopted, not robust (bootstrap 77 %) | **0.6818** | **0.4202** | `20261119-173148_full_text_dev_eco_type_rule` |
-| 16 | 11-19 | #14 + ecosystem_type rule | both (section 13); rejected with v6 | 0.6754 | 0.4338 | `20261119-173302_full_text_dev_prompt_v6_eco_type_rule` |
+| 15 | 11-19 | #12 + ecosystem_type rule, first version | drop all ecosystem_type if all habitats are farmland/soil/urban (section 13); superseded by #17 (bootstrap 77 %) | 0.6818 | 0.4202 | `20261119-173148_full_text_dev_eco_type_rule` |
+| 16 | 11-19 | #14 + ecosystem_type rule, first version | both (section 13); rejected with v6 | 0.6754 | 0.4338 | `20261119-173302_full_text_dev_prompt_v6_eco_type_rule` |
+| 17 | 11-19 | **#12 + ecosystem_type rule, second version** | drop only "Äcker und Ackerbrachen" and entries without term (section 13); adopted, bootstrap 95 % but chosen after seeing dev | **0.6881** | **0.4202** | `20261119-180347_full_text_dev` |
 
 
 ---
@@ -292,7 +294,7 @@ answers). `postprocess.min_confidence`, `labels_with_confidence.jsonl` and the s
 ## 13. Prompt v6 and the ecosystem_type rule
 
 Both start from the defaults (#12: F, prompt v4, DeepSeek 4.1, service rule, level_v1). Their
-reasons come from the training labels (section 14).
+rates come from the training labels (section 14).
 
 - **Prompt v6** (`config/prompts/extraction_v6.txt`, `config/experiments/prompt_v6.yaml`): v4 plus
   one rule, R9 "Broad overviews": national or EU strategies, red lists, status reports,
@@ -301,49 +303,71 @@ reasons come from the training labels (section 14).
   35 habitat FN of #12 come from 7 broad overviews. 107 new main calls (109 requests with 2
   retries); the level calls came from the cache.
 - **ecosystem_type rule** (`postprocess.drop_ecosystem_type_for_land_only_habitats`, default
-  true since this experiment; off: `config/experiments/no_eco_type_rule.yaml`; with v6:
-  `prompt_v6_eco_type_rule.yaml`):
-  if a paper's predicted habitats are non-empty and all in `postprocess.land_only_habitats`
-  (Agrar- und Offenland, Boden, Urbane Räume), drop all its ecosystem_type labels. Runs after
-  `min_confidence`, before the service rule; 0 requests. It dropped 13 entries in 13 papers in
-  both runs.
+  true; off: `config/experiments/no_eco_type_rule.yaml`): for a paper whose predicted habitats
+  are non-empty and all in `postprocess.land_only_habitats` (Agrar- und Offenland, Boden,
+  Urbane Räume), drop ecosystem_type labels. Runs after `min_confidence`, before the service
+  rule; 0 requests. The idea came from the dev error analysis (most ecosystem_type false
+  positives were "Äcker und Ackerbrachen" in papers without any ecosystem_type); the rates come
+  from train.
+  - **first version** (#15, #16; superseded; `eco_type_rule.yaml`, with v6
+    `prompt_v6_eco_type_rule.yaml`, both with `ecosystem_type_terms_dropped_for_land_only_habitats: all`):
+    drop **all** ecosystem_type labels of such a paper. 13 entries in 13 papers.
+  - **second version** (#17, the default): drop only labels whose term is in
+    `postprocess.ecosystem_type_terms_dropped_for_land_only_habitats` ("Äcker und
+    Ackerbrachen" and null = no term). 8 entries in 8 papers.
 
-| field F1 | #12 defaults | #14 v6 | #15 rule | #16 v6 + rule |
-|---|---|---|---|---|
-| habitat | 0.8207 | **0.8276** | 0.8207 | **0.8276** |
-| ecosystem_type.category | 0.7216 | 0.6737 | **0.7381** | 0.7073 |
-| ecosystem_type.term | 0.6606 | 0.5905 | **0.6875** | 0.6304 |
-| taxa.species_group | 0.7074 | **0.7560** | 0.7074 | **0.7560** |
-| taxa.scientific_name | 0.3314 | **0.3647** | 0.3314 | **0.3647** |
-| taxa.german_name | 0.3308 | **0.3598** | 0.3308 | **0.3598** |
-| biodiversity_level | 0.4554 | 0.4554 | 0.4554 | 0.4554 |
-| ecosystem_service.term | 0.2963 | 0.2667 | 0.2963 | 0.2667 |
-| **C1** | 0.6732 | 0.6606 | **0.6818** | 0.6754 |
-| **C2b** | 0.4202 | **0.4338** | 0.4202 | **0.4338** |
+| field F1 | #12 defaults | #14 v6 | #15 rule v1 | #16 v6 + rule v1 | #17 rule v2 |
+|---|---|---|---|---|---|
+| habitat | 0.8207 | **0.8276** | 0.8207 | **0.8276** | 0.8207 |
+| ecosystem_type.category | 0.7216 | 0.6737 | 0.7381 | 0.7073 | **0.7640** |
+| ecosystem_type.term | 0.6606 | 0.5905 | 0.6875 | 0.6304 | **0.6931** |
+| taxa.species_group | 0.7074 | **0.7560** | 0.7074 | **0.7560** | 0.7074 |
+| taxa.scientific_name | 0.3314 | **0.3647** | 0.3314 | **0.3647** | 0.3314 |
+| taxa.german_name | 0.3308 | **0.3598** | 0.3308 | **0.3598** | 0.3308 |
+| biodiversity_level | 0.4554 | 0.4554 | 0.4554 | 0.4554 | 0.4554 |
+| ecosystem_service.term | 0.2963 | 0.2667 | 0.2963 | 0.2667 | 0.2963 |
+| **C1** | 0.6732 | 0.6606 | 0.6818 | 0.6754 | **0.6881** |
+| **C2b** | 0.4202 | **0.4338** | 0.4202 | **0.4338** | 0.4202 |
 
-| TP / FP / FN | #12 defaults | #14 v6 | #15 rule | #16 v6 + rule |
-|---|---|---|---|---|
-| habitat | 103 / 10 / 35 | 120 / 32 / 18 | 103 / 10 / 35 | 120 / 32 / 18 |
-| ecosystem_type.category | 35 / 16 / 11 | 32 / 17 / 14 | 31 / 7 / 15 | 29 / 7 / 17 |
-| ecosystem_type.term | 36 / 20 / 17 | 31 / 21 / 22 | 33 / 10 / 20 | 29 / 10 / 24 |
-| taxa.species_group | 81 / 42 / 25 | 79 / 24 / 27 | 81 / 42 / 25 | 79 / 24 / 27 |
+| TP / FP / FN | #12 defaults | #14 v6 | #15 rule v1 | #16 v6 + rule v1 | #17 rule v2 |
+|---|---|---|---|---|---|
+| habitat | 103 / 10 / 35 | 120 / 32 / 18 | 103 / 10 / 35 | 120 / 32 / 18 | 103 / 10 / 35 |
+| ecosystem_type.category | 35 / 16 / 11 | 32 / 17 / 14 | 31 / 7 / 15 | 29 / 7 / 17 | 34 / 9 / 12 |
+| ecosystem_type.term | 36 / 20 / 17 | 31 / 21 / 22 | 33 / 10 / 20 | 29 / 10 / 24 | 35 / 13 / 18 |
+| taxa.species_group | 81 / 42 / 25 | 79 / 24 / 27 | 81 / 42 / 25 | 79 / 24 / 27 | 81 / 42 / 25 |
 
 Bootstrap (2,000 resamples of the 100 papers, seed 1, against #12):
 
 | | C1 better in | C2b better in |
 |---|---|---|
-| ecosystem_type rule (#15) | 77 % | – (C2b unchanged) |
+| ecosystem_type rule, first version (#15) | 77 % | – (C2b unchanged) |
+| ecosystem_type rule, second version (#17) | 95 % (optimistic: chosen after seeing dev) | – (C2b unchanged) |
 | prompt v6 (#14) | 21 % | 77 % |
 
-### ecosystem_type rule: adopted, not robust (bootstrap 77 %)
+### ecosystem_type rule: second version adopted, first version superseded
 
-The rule removes 13 ecosystem_type entries in 13 papers; about two thirds were false
-(category FP 16 → 7 vs TP 35 → 31, F1 0.722 → 0.738; term FP 20 → 10 vs TP 36 → 33, F1
-0.661 → 0.688): C1 +0.009, C2b unchanged (ecosystem_type is not part of C2b).
-**Decision: adopted as default, not robust (bootstrap 77 %).** Reasons: the rule was derived
-from train before dev was looked at (217 of 282 train papers whose habitats are only Agrar- und
-Offenland, Boden or Urbane Räume have no ecosystem_type, section 14), it needs no request,
-and it only drops labels. Off: `no_eco_type_rule.yaml` (0.6732 / 0.4202 from the cache).
+Where the idea came from: the dev error analysis (most ecosystem_type false positives were
+"Äcker und Ackerbrachen" in papers without any ecosystem_type); the rates come from train
+(section 14). So the rule is not independent of dev.
+
+- **First version (#15, superseded):** drop all ecosystem_type entries of a land-only paper.
+  It removed 13 entries in 13 papers, about two thirds false (category FP 16 → 7 vs TP 35 → 31,
+  F1 0.722 → 0.738; term FP 20 → 10 vs TP 36 → 33, F1 0.661 → 0.688): C1 0.6732 → 0.6818,
+  C2b unchanged (ecosystem_type is not part of C2b). Bootstrap 77 %: not robust. It also drops
+  the specific semi-natural types (e.g. Trockenrasen) that land-only papers do get in train.
+- **Second version (#17, the default):** drop only "Äcker und Ackerbrachen" and entries
+  without term. Train: papers with only Agrar/Boden/Urbane Räume get specific semi-natural
+  biotope types (Trockenrasen 21, Grün- und Freiflächen 7, Niedermoore 5, ...) but "Äcker und
+  Ackerbrachen" in only 23 of 282 (8 %); stable across random halves of train (6–11 %) and
+  before/after 2015 (8 % / 8 %). Dev, from the cache: 8 entries dropped in 8 papers; category
+  TP/FP 35/16 → 34/9 (F1 0.764), term 36/20 → 35/13 (F1 0.693); C1 0.6881, C2b 0.4202.
+  Bootstrap vs #12: 95 %, **but the term list was chosen after seeing dev, so this is
+  optimistic.**
+
+**Decision: second version adopted as default; first version documented as superseded.**
+Reasons: the rates come from train and are stable there, it needs no request, and it only
+drops labels. Off: `no_eco_type_rule.yaml` (0.6732 / 0.4202 from the cache); first version:
+`eco_type_rule.yaml` (`ecosystem_type_terms_dropped_for_land_only_habitats: all`).
 
 ### Prompt v6: rejected
 
@@ -380,11 +404,14 @@ practice, which the schema questions do not.
 | ~~Broad overviews get every habitat they cover~~ (wrong direction, see section 13) | all 23 papers with >= 4 habitats are such overviews, i.e. P(overview \| >= 4 habitats) is high; but P(>= 4 habitats \| overview) is low: books 0 of 29, techreports 9 of 54 (34 have one habitat) | prompt v6, R9 (rejected) |
 | Broad overviews almost never get an ecosystem_type | 1 of the 23 (counted on papers with >= 4 habitats only) | prompt v6, R9 (rejected) |
 | Broad overviews get taxa only if one group is their main subject | 7 of the 23 have taxa (same caveat) | prompt v6, R9 (rejected) |
-| Papers on farmland, soil or urban areas only rarely get an ecosystem_type | 217 of 282 papers whose habitats are only Agrar- und Offenland, Boden or Urbane Räume have none (77 %); share with an ecosystem_type per habitat: Agrar- und Offenland 23 %, Boden 10 %, Urbane Räume 20 %, vs Binnengewässer und Auen 73 %, Küsten und Küstengewässer 58 % | ecosystem_type rule (default; same direction as applied: habitats → no ecosystem_type) |
+| Papers on farmland, soil or urban areas only rarely get an ecosystem_type | 217 of 282 papers whose habitats are only Agrar- und Offenland, Boden or Urbane Räume have none (77 %); share with an ecosystem_type per habitat: Agrar- und Offenland 23 %, Boden 10 %, Urbane Räume 20 %, vs Binnengewässer und Auen 73 %, Küsten und Küstengewässer 58 % | ecosystem_type rule, first version (superseded) |
+| If they get one, it is a specific semi-natural biotope type, rarely "Äcker und Ackerbrachen" | Trockenrasen 21, Grün- und Freiflächen 7, Niedermoore 5, ...; "Äcker und Ackerbrachen" in 23 of 282 (8 %); random halves of train 6–11 %, before/after 2015 8 % / 8 % | ecosystem_type rule, second version (default; same direction as applied: habitats → term) |
 | Papers whose 3 nearest training papers have no ecosystem_service rarely have one | 35 of 525 (6.7 %) vs 163 of 353 (46 %) | service rule (section 10) |
 | About half of the papers with taxa list only groups | 51 % only groups, 31 % only species, 18 % both; 95 % at most 11 single species | prompt v3 R7 (rejected) |
 
-On dev: 24 of the 35 habitat FN of #12 come from 7 broad overviews.
+On dev: 24 of the 35 habitat FN of #12 come from 7 broad overviews. The ecosystem_type rule's
+idea came from the dev error analysis (most ecosystem_type false positives were "Äcker und
+Ackerbrachen" in papers without any ecosystem_type); only its rates come from train.
 
 **Check before using a convention:** the direction. A post-processing rule or prompt rule
 uses P(label | what it can see); a count of P(what it can see | label) does not support it.

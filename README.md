@@ -16,9 +16,10 @@ Prompt v4 shows, for each paper, how the database labelled its most similar trai
 papers (TF-IDF on the first pages of the PDFs), so the model sees the database's conventions.
 A second call per paper with its own prompt (level_v1) decides biodiversity_level.
 Every label needs a verbatim quote; a Python checker drops labels without one. Afterwards F
-drops a paper's ecosystem services if none of its similar training papers has any, and its
-ecosystem types if all its habitats are farmland, soil or urban areas (in train, 77 % of such
-papers have none).
+drops a paper's ecosystem services if none of its similar training papers has any, and, if
+all its habitats are farmland, soil or urban areas, its ecosystem types "Äcker und
+Ackerbrachen" and those without a term (in train only 8 % of such papers get "Äcker und
+Ackerbrachen").
 Plan: `SPEC.md` · Rules for Claude Code: `CLAUDE.md` · All commands: `docs/HOW_TO_RUN.md` · All experiments: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md)
 
 ## Repository Structure
@@ -130,7 +131,8 @@ All experiments with their results and what we learned: [`docs/EXPERIMENTS.md`](
 
 | Pipeline | C1 | C2b |
 |---|---|---|
-| **F (full text, prompt v4, DeepSeek 4.1, service rule, level prompt, ecosystem_type rule): the defaults** (not robust: bootstrap 77 %) | **0.6818** | **0.4202** |
+| **F (full text, prompt v4, DeepSeek 4.1, service rule, level prompt, ecosystem_type rule): the defaults** (rule: bootstrap 95 %, optimistic: chosen after seeing dev) | **0.6881** | **0.4202** |
+| F with the first ecosystem_type rule (drops all ecosystem types, superseded; `eco_type_rule.yaml`) | 0.6818 | 0.4202 |
 | F without the ecosystem_type rule (`no_eco_type_rule.yaml`) (level prompt not robust: bootstrap 73 %) | 0.6732 | 0.4202 |
 | F without the ecosystem_type rule and the level prompt (`no_level_prompt.yaml`) | 0.6644 | 0.4130 |
 | F without ecosystem_type rule, level prompt and service rule (`no_service_rule.yaml`) | 0.6644 | 0.3733 |
