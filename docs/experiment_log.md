@@ -86,3 +86,43 @@ Dev-best (0.526). Full table: `src/models/base_models/full_corpus_comparison.py`
   watchdog auto-retries every 10 min, then chains SAIA v1 → v2 automatically.
 - All server runs: tmux (`bio_saia`, `bio_hu`, `bio_exp`) + cron watchdogs;
   VPN model-only routing; results artifacts under `outputs/architectures/`.
+
+---
+
+## Architecture 3: RAG-Anchored Sections & Parser Axis (2026-11-18 – 2026-11-21)
+
+**Experiment Protocol (Strict OFAT — One Factor at a Time):**
+Every optimization (parser, routing, chunking/summarization, prompt edit, post-processing) is tested **one change at a time** on the fixed 100-paper Dev split (`data/gold/dev_100_ids.txt`), compared directly against its immediate baseline, and logged here immediately for the final course report. No Dev-ID-specific heuristics or Dev-calibrated thresholds.
+
+### 1. Parser Axis on Architecture 3 (`llm_rag_sections.py`)
+
+| Variant (Parser) | Provider / Model | C1 Macro-F1 | C1+C2b Macro-F1 | Micro-F1 | Status / Delta vs. PyMuPDF |
+|---|---|---|---|---|---|
+| PyMuPDF (baseline) | `saia` / `deepseek-v4.1-flash-1017` | 0.5798 | 0.4273 | 0.4286 | done |
+| GROBID (`--grobid-url`) | `saia` / `deepseek-v4.1-flash-1017` | 0.5957 | **0.4544** | **0.4390** | done (`+0.0159` C1, `+0.0271` C1+C2b) |
+| Marker (`--marker`) | `saia` / `deepseek-v4.1-flash-1017` | **0.5985** | 0.4362 | 0.3784 | done (`+0.0187` C1, `-0.0502` Micro) |
+| Docling (`--docling`) | `saia` / `deepseek-v4.1-flash-1017` | pending | — | — | running (`bio_opt_saia`) |
+| PyMuPDF (baseline) | `hu` / `hu-reasoning` | 0.5539 | 0.4073 | 0.4126 | done |
+| GROBID (`--grobid-url`) | `hu` / `hu-reasoning` | 0.5706 | 0.4353 | 0.4293 | done (`+0.0167` C1, `+0.0280` C1+C2b) |
+| Marker (`--marker`) | `hu` / `hu-reasoning` | 0.5837 | 0.4197 | 0.4015 | done (`+0.0298` C1, `-0.0111` Micro) |
+| Docling (`--docling`) | `hu` / `hu-reasoning` | pending | — | — | running (`bio_opt_hu`) |
+
+### 2. Offline Consensus Replay (0 API Calls, 2026-11-21)
+
+Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`, `saia_marker`, `hu_grobid`, `hu_marker`) with `micronormalize_taxon_name`:
+- **2-of-4 Consensus:** `C1 = 0.5902 | C1+C2b = 0.4382 | Micro = 0.4238`
+- **3-of-4 Consensus:** `C1 = 0.5932 | C1+C2b = 0.4687 | Micro = 0.4496` (**+0.0143 C1+C2b / +0.0106 Micro** over best single model)
+
+### 3. Queued OFAT Ablations (`bio_opt_saia` & `bio_opt_hu`, started 2026-11-21)
+
+1. `GROBID + --detox-rag` (bilingual `char_wb` TF-IDF + species-stripped kNN anchors) — SAIA queued
+2. `GROBID + --detox-rag --role-budget` (28k section budget weighted 35%/35% Methods/Results) — SAIA queued
+3. `GROBID + --detox-rag --role-budget --evidence-gates --clean-taxa` — SAIA & HU queued
+4. `Marker + --detox-rag --role-budget --evidence-gates --clean-taxa` — SAIA & HU queued
+
+### 4. Upcoming Planned OFAT Phases (see `notes/next_steps_preprocessing.md`)
+
+1. **Phase 1 — Adaptive Parser Router (`--auto-parser`):** 4-way parser diff analysis after Docling completes $\rightarrow$ objective PDF/TEI routing heuristic $\rightarrow$ Dev-100 A/B test.
+2. **Phase 2 — Long-Paper Map-Reduce Summarization:** Chunked independent evidence extraction (Map) + RAG consolidation (Reduce) for papers exceeding budget.
+3. **Phase 3 — Stepwise Integration of `minhanh_testing` (`Pipeline F`):** Isolate & A/B test `prompt v2` and `checker 60 words` individually against our baseline.
+4. **Phase 4 — Final Cross-Parser / Cross-Model Consensus Ensemble & Full-Set Run.**
