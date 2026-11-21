@@ -1,0 +1,5 @@
+bert-score==0.3.13
+transformers==4.57.6
+torch==2.9.0
+huggingface-hub==0.36.0
+numpy==2.2.6
