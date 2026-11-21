@@ -51,7 +51,11 @@ from src.evaluation.evaluator import (
     print_report,
     save_reproducible_run,
 )
-from src.models.architectures.llm_parallel_chunking import extract_grobid_chunks
+from src.models.architectures.llm_parallel_chunking import (
+    extract_grobid_chunks,
+    micronormalize_taxon_name,
+    verify_verbatim_quote,
+)
 from src.models.architectures.llm_sections_pipeline import (
     RobustOpenAICompatClient,
     extract_semantic_sections,
@@ -83,11 +87,23 @@ def _load_corpus_text(zot_id: str, rec: dict[str, Any], text_dir: Path) -> str:
 class TrainKNNRetriever:
     """Lightweight TF-IDF retriever over the 908 training papers for dynamic few-shot."""
 
-    def __init__(self, train_records: dict[str, dict[str, Any]], train_text_dir: Path):
+    def __init__(
+        self,
+        train_records: dict[str, dict[str, Any]],
+        train_text_dir: Path,
+        detox_rag: bool = False,
+    ):
         self.train_ids = sorted(train_records.keys())
         self.train_records = train_records
+        self.detox_rag = detox_rag
         docs = [_load_corpus_text(zid, train_records[zid], train_text_dir) for zid in self.train_ids]
-        self.vectorizer = TfidfVectorizer(max_features=15000, stop_words="english", sublinear_tf=True)
+        if detox_rag:
+            # Bilingual char n-grams match both German/English text and Latin taxon stems
+            self.vectorizer = TfidfVectorizer(
+                max_features=20000, analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True
+            )
+        else:
+            self.vectorizer = TfidfVectorizer(max_features=15000, stop_words="english", sublinear_tf=True)
         self.train_matrix = self.vectorizer.fit_transform(docs)
 
     def retrieve_top_k(self, query_text: str, k: int = 2) -> list[dict[str, Any]]:
@@ -98,11 +114,19 @@ class TrainKNNRetriever:
         for idx in top_idx:
             zid = self.train_ids[int(idx)]
             rec = self.train_records[zid]
+            taxa_val = rec.get("taxa", [])
+            if self.detox_rag and isinstance(taxa_val, list):
+                # Strip specific species names from anchors to prevent copying neighbor taxa
+                taxa_val = [
+                    {"species_group": t.get("species_group"), "collective_term": t.get("collective_term")}
+                    for t in taxa_val
+                    if isinstance(t, dict) and t.get("species_group")
+                ]
             gold_compact = {
                 "habitat": rec.get("habitat", []),
                 "biodiversity_level": rec.get("biodiversity_level", []),
                 "ecosystem_type": rec.get("ecosystem_type", []),
-                "taxa": rec.get("taxa", []),
+                "taxa": taxa_val,
                 "ecosystem_service": rec.get("ecosystem_service", []),
             }
             examples.append(
@@ -114,12 +138,30 @@ class TrainKNNRetriever:
         return examples
 
 
+def _section_role_weight(name: str) -> float:
+    """Assigns generic role weights (Methods/Results prioritized over Intro/Background)."""
+    low = name.lower()
+    if any(k in low for k in ("method", "study area", "material", "untersuchungsgebiet", "erhebung")):
+        return 0.35
+    if any(k in low for k in ("result", "ergebnis", "finding", "befund")):
+        return 0.35
+    if any(k in low for k in ("abstract", "title")):
+        return 0.15
+    if any(k in low for k in ("discussion", "diskussion", "conclusion", "fazit")):
+        return 0.15
+    if any(k in low for k in ("intro", "einleitung", "background", "hintergrund")):
+        return 0.10
+    return 0.20
+
+
 def build_rag_user_prompt(
     rec: dict[str, Any],
     sections: list[dict[str, Any]],
     few_shot_examples: list[dict[str, Any]],
     field_spec: dict[str, Any],
     max_total_chars: int = 16000,
+    role_budget: bool = False,
+    evidence_gates: bool = False,
 ) -> str:
     """Builds a compact, RAG-anchored user prompt with filtered sections and few-shot gold."""
     title = str(rec.get("bibtex_title") or "").strip()
@@ -133,26 +175,44 @@ def build_rag_user_prompt(
     examples_str = "\n\n".join(examples_block)
 
     # 2. Pack high-signal semantic sections within budget
-    budget_per_sec = max(2500, max_total_chars // max(1, len(sections)))
     sec_blocks = []
-    for sec in sections:
-        sec_blocks.append(f"### SECTION: {sec['section_name']}\n{sec['text'][:budget_per_sec]}")
+    if role_budget:
+        budget_total = 28000
+        weights = [_section_role_weight(s["section_name"]) for s in sections]
+        w_sum = sum(weights) or 1.0
+        for sec, w in zip(sections, weights):
+            sec_cap = max(2500, int(budget_total * (w / w_sum)))
+            sec_blocks.append(f"### SECTION: {sec['section_name']}\n{sec['text'][:sec_cap]}")
+    else:
+        budget_per_sec = max(2500, max_total_chars // max(1, len(sections)))
+        for sec in sections:
+            sec_blocks.append(f"### SECTION: {sec['section_name']}\n{sec['text'][:budget_per_sec]}")
     doc_text = "\n\n".join(sec_blocks)
 
     # 3. Term enums reminder (high-leverage E1 finding)
     eco_terms = field_spec["ecosystem_type"]["subfields"]["term"]["values"]
     srv_terms = field_spec["ecosystem_service"]["subfields"]["term"]["values"]
 
+    evidence_note = ""
+    if evidence_gates:
+        evidence_note = (
+            "\n\nEVIDENCE REQUIREMENT FOR SPARSE FIELDS:\n"
+            "If you output `ecosystem_service` or `biodiversity_level`, also include an optional "
+            "`_evidence` object with short verbatim quotes from the document proving them:\n"
+            '`"_evidence": {"ecosystem_service": "<verbatim quote>", "biodiversity_level": ["<verbatim quote>"]}`\n'
+            "If no verbatim evidence exists in the text, leave those fields as [].\n"
+        )
+
     return (
-        f"SIMILAR ANNOTATED EXAMPLES (follow their exact label conventions & sparsity):\n"
+        f"SIMILAR ANNOTATED EXAMPLES (follow their exact label conventions & sparsity; NEVER copy taxa from examples):\n"
         f"{examples_str}\n\n"
         f"ALLOWED ECOSYSTEM_TYPE.TERM VALUES:\n{json.dumps(eco_terms, ensure_ascii=False)}\n\n"
         f"ALLOWED ECOSYSTEM_SERVICE.TERM VALUES:\n{json.dumps(srv_terms, ensure_ascii=False)}\n\n"
         f"TARGET DOCUMENT\n"
         f"Title: {title}\n\n"
         f"{doc_text}\n\n"
-        f"Extract ONLY empirically studied attributes of THIS study (ignore background citations). "
-        f"Return a single valid JSON object matching the schema."
+        f"Extract the main studied/focused attributes of THIS document (ignore background citations)."
+        f"{evidence_note} Return a single valid JSON object matching the schema."
     )
 
 
@@ -275,6 +335,57 @@ def extract_marker_sections(
     return extract_markdown_cached_sections(zot_id, rec, pdf_dir, "marker_dev", None)
 
 
+def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
+    """
+    Removes fabricated '-' / species_group fallbacks when the LLM left fields null/empty,
+    and canonicalizes author epithets & spp. formatting without inventing labels.
+    """
+    raw_taxa = raw_pred.get("taxa") or []
+    cleaned = []
+    for idx, t in enumerate(norm.get("taxa") or []):
+        raw_t = raw_taxa[idx] if idx < len(raw_taxa) and isinstance(raw_taxa[idx], dict) else {}
+        sci = t.get("scientific_name")
+        ger = t.get("german_name")
+        # Drop fabricated '-' unless model explicitly emitted '-'
+        if sci == "-" and str(raw_t.get("scientific_name") or "").strip() != "-":
+            sci = None
+        elif sci and sci != "-":
+            sci = micronormalize_taxon_name(sci)
+        # Drop fabricated species_group echo in german_name unless model explicitly emitted it
+        if ger == t.get("species_group") and not str(raw_t.get("german_name") or "").strip():
+            ger = None
+        cleaned.append(
+            {
+                "species_group": t.get("species_group"),
+                "scientific_name": sci,
+                "german_name": ger,
+                "collective_term": t.get("collective_term", False),
+            }
+        )
+    norm["taxa"] = cleaned
+
+
+def apply_evidence_gates(
+    raw_pred: dict[str, Any],
+    norm: dict[str, Any],
+    source_text: str,
+) -> None:
+    """Verifies optional `_evidence` quotes for sparse fields and drops ungrounded entries."""
+    ev = raw_pred.get("_evidence")
+    if not isinstance(ev, dict):
+        return
+    if norm.get("ecosystem_service"):
+        srv_q = str(ev.get("ecosystem_service") or "").strip()
+        if not verify_verbatim_quote(srv_q, source_text):
+            norm["ecosystem_service"] = []
+    if norm.get("biodiversity_level"):
+        lvl_quotes = ev.get("biodiversity_level") or []
+        if isinstance(lvl_quotes, str):
+            lvl_quotes = [lvl_quotes]
+        if not any(verify_verbatim_quote(str(q), source_text) for q in lvl_quotes):
+            norm["biodiversity_level"] = []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -283,6 +394,10 @@ def main() -> None:
     parser.add_argument("--grobid-url", default=None)
     parser.add_argument("--docling", action="store_true", help="Use IBM Docling Markdown parser")
     parser.add_argument("--marker", action="store_true", help="Use Marker PDF Markdown cache")
+    parser.add_argument("--detox-rag", action="store_true", help="Char n-gram retrieval + strip taxa from kNN anchors")
+    parser.add_argument("--role-budget", action="store_true", help="28k role-weighted section budget (Methods/Results prioritized)")
+    parser.add_argument("--evidence-gates", action="store_true", help="Require verbatim quote evidence on sparse fields")
+    parser.add_argument("--clean-taxa", action="store_true", help="Do not fabricate '-' or species_group fallbacks in taxa")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -301,7 +416,7 @@ def main() -> None:
     train_text_dir = REPO_ROOT / "data/parsed_text/train"
 
     print("Building TF-IDF kNN index over 908 training papers...")
-    retriever = TrainKNNRetriever(train_records, train_text_dir)
+    retriever = TrainKNNRetriever(train_records, train_text_dir, detox_rag=args.detox_rag)
     majority_learned = fit_majority_model(train_records)
 
     # Load official field specifications & build system prompt
@@ -324,8 +439,15 @@ def main() -> None:
         parser_suffix, parser_label = "_grobid", " + GROBID"
     else:
         parser_suffix, parser_label = "", ""
-    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}"
-    run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}): {actual_model}"
+
+    opt_suffix = "".join([
+        "_detox" if args.detox_rag else "",
+        "_role" if args.role_budget else "",
+        "_ev" if args.evidence_gates else "",
+        "_ctaxa" if args.clean_taxa else "",
+    ])
+    run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
+    run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
 
     ckpt_dir = REPO_ROOT / "outputs" / CATEGORY / run_model_id
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -359,13 +481,24 @@ def main() -> None:
         combined_clean_text = " ".join(s["text"] for s in sections)
         few_shots = retriever.retrieve_top_k(combined_clean_text, k=args.top_k)
 
-        user_prompt = build_rag_user_prompt(rec, sections, few_shots, field_spec)
+        user_prompt = build_rag_user_prompt(
+            rec,
+            sections,
+            few_shots,
+            field_spec,
+            role_budget=args.role_budget,
+            evidence_gates=args.evidence_gates,
+        )
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
 
         raw_out = client.chat(system_prompt, user_prompt)
         parsed = extract_json_block(raw_out) or {}
         norm = normalize_prediction(parsed, field_spec)
+        if args.clean_taxa:
+            apply_clean_taxa(parsed, norm)
+        if args.evidence_gates and not isinstance(client, DryRunMockClient):
+            apply_evidence_gates(parsed, norm, combined_clean_text)
         norm["zotitem_ptr_id"] = zot_id
 
         # Dense fallback for habitat if completely empty
