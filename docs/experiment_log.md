@@ -124,6 +124,19 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 
 **OFAT Takeaway:** `--detox-rag` is a clear negative (`-0.0558` C1), whereas both `--role-budget` (`+0.0047` C1) and `--evidence-gates --clean-taxa` (`+0.0142` C1 on GROBID, `+0.0406` Micro on Marker) improved over their immediate predecessor. Next step: test `--role-budget` and `--evidence-gates --clean-taxa` cleanly **without** `--detox-rag` against the `0.5957`/`0.5985` baselines.
 
+### 3b. Clean OFAT Ablations without `--detox-rag` (`bio_ofat_saia` & `bio_ofat_hu`, 2026-11-22)
+
+| Variant | Provider / Model | C1 Macro-F1 | C1+C2b | Micro-F1 | Delta vs. Parser Baseline |
+|---|---|---|---|---|---|
+| `GROBID + --role-budget` | `saia` / `deepseek-v4.1-flash-1017` | 0.5815 | 0.4131 | 0.3736 | `-0.0142` C1, `-0.0413` C1+C2b (drop `--role-budget`) |
+| `GROBID + --evidence-gates --clean-taxa` | `saia` / `deepseek-v4.1-flash-1017` | 0.5959 | 0.4530 | **0.4516** | `+0.0002` C1, **`+0.0126` Micro** (new single-model Micro best) |
+| `Marker + --evidence-gates --clean-taxa` | `saia` / `deepseek-v4.1-flash-1017` | **0.6040** | 0.4487 | 0.4124 | **`+0.0055` C1, `+0.0125` C1+C2b, `+0.0340` Micro** (new single-model C1 best) |
+| `Marker + --role-budget --evidence-gates --clean-taxa` | `saia` / `deepseek-v4.1-flash-1017` | 0.5953 | 0.4271 | 0.3924 | `-0.0087` C1 vs. step above (confirms `--role-budget` hurts) |
+| `GROBID + --evidence-gates --clean-taxa` | `hu` / `hu-reasoning` | 0.5434 | 0.4228 | 0.4194 | `-0.0272` C1 vs. HU GROBID (`0.5706`) — gates hurt HU |
+| `Marker + --evidence-gates --clean-taxa` | `hu` / `hu-reasoning` | 0.5625 | 0.3807 | 0.3694 | `-0.0212` C1 vs. HU Marker (`0.5837`) — gates hurt HU |
+
+**Clean OFAT Decision:** Keep `--evidence-gates --clean-taxa` for **SAIA DeepSeek 4.1** (`0.6040` C1 on Marker, `0.4516` Micro on GROBID); drop both `--detox-rag` and `--role-budget`. Keep baseline (no gates) for HU-Reasoning.
+
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
 Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
