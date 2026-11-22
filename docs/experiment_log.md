@@ -101,11 +101,11 @@ Every optimization (parser, routing, chunking/summarization, prompt edit, post-p
 | PyMuPDF (baseline) | `saia` / `deepseek-v4.1-flash-1017` | 0.5798 | 0.4273 | 0.4286 | done |
 | GROBID (`--grobid-url`) | `saia` / `deepseek-v4.1-flash-1017` | 0.5957 | **0.4544** | **0.4390** | done (`+0.0159` C1, `+0.0271` C1+C2b) |
 | Marker (`--marker`) | `saia` / `deepseek-v4.1-flash-1017` | **0.5985** | 0.4362 | 0.3784 | done (`+0.0187` C1, `-0.0502` Micro) |
-| Docling (`--docling`) | `saia` / `deepseek-v4.1-flash-1017` | pending | — | — | running (`bio_opt_saia`) |
+| Docling (`--docling`) | `saia` / `deepseek-v4.1-flash-1017` | 0.5634 | 0.4221 | 0.4131 | done (`-0.0164` C1 vs. PyMuPDF; per-paper routing candidate) |
 | PyMuPDF (baseline) | `hu` / `hu-reasoning` | 0.5539 | 0.4073 | 0.4126 | done |
 | GROBID (`--grobid-url`) | `hu` / `hu-reasoning` | 0.5706 | 0.4353 | 0.4293 | done (`+0.0167` C1, `+0.0280` C1+C2b) |
 | Marker (`--marker`) | `hu` / `hu-reasoning` | 0.5837 | 0.4197 | 0.4015 | done (`+0.0298` C1, `-0.0111` Micro) |
-| Docling (`--docling`) | `hu` / `hu-reasoning` | pending | — | — | running (`bio_opt_hu`) |
+| Docling (`--docling`) | `hu` / `hu-reasoning` | 0.5613 | 0.4018 | 0.3748 | done (`+0.0074` C1 vs. PyMuPDF, below GROBID/Marker) |
 
 ### 2. Offline Consensus Replay (0 API Calls, 2026-11-21)
 
@@ -115,12 +115,30 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 
 ### 3. Queued OFAT Ablations (`bio_opt_saia` & `bio_opt_hu`, started 2026-11-21)
 
-1. `GROBID + --detox-rag` (bilingual `char_wb` TF-IDF + species-stripped kNN anchors) — SAIA queued
-2. `GROBID + --detox-rag --role-budget` (28k section budget weighted 35%/35% Methods/Results) — SAIA queued
-3. `GROBID + --detox-rag --role-budget --evidence-gates --clean-taxa` — SAIA & HU queued
-4. `Marker + --detox-rag --role-budget --evidence-gates --clean-taxa` — SAIA & HU queued
+1. `SAIA GROBID + --detox-rag` (bilingual `char_wb` TF-IDF + species-stripped kNN anchors) — **done:** `C1 = 0.5399 | C1+C2b = 0.4153 | Micro = 0.4260` (**-0.0558 C1** vs. GROBID baseline `0.5957` — negative result: masking taxa in kNN anchors hurts domain/format grounding)
+2. `SAIA GROBID + --detox-rag --role-budget` (28k section budget weighted 35%/35% Methods/Results) — **done:** `C1 = 0.5446 | C1+C2b = 0.4118 | Micro = 0.4279` (`+0.0047` C1 / `+0.0019` Micro vs. `--detox-rag` alone, still hurt by `--detox-rag`)
+3. `SAIA GROBID + --detox-rag --role-budget --evidence-gates --clean-taxa` — **done:** `C1 = 0.5588 | C1+C2b = 0.4149 | Micro = 0.4282` (`+0.0142` C1 / `+0.0031` C1+C2b vs. step 2)
+4. `SAIA Marker + --detox-rag --role-budget --evidence-gates --clean-taxa` — **done:** `C1 = 0.5676 | C1+C2b = 0.4112 | Micro = 0.4190` (`+0.0406` Micro vs. Marker baseline `0.3784`, but C1 hurt by `--detox-rag`)
+5. `HU GROBID + --detox-rag --role-budget --evidence-gates --clean-taxa` — **done:** `C1 = 0.5654 | C1+C2b = 0.3898 | Micro = 0.3825` (`-0.0052` C1, `-0.0455` C1+C2b vs. HU GROBID baseline `0.5706 / 0.4353 / 0.4293`)
+6. `HU Marker + --detox-rag --role-budget --evidence-gates --clean-taxa` — **done:** `C1 = 0.5520 | C1+C2b = 0.3731 | Micro = 0.3870` (`-0.0317` C1 vs. HU Marker baseline `0.5837`)
 
-### 4. Upcoming Planned OFAT Phases (see `notes/next_steps_preprocessing.md`)
+**OFAT Takeaway:** `--detox-rag` is a clear negative (`-0.0558` C1), whereas both `--role-budget` (`+0.0047` C1) and `--evidence-gates --clean-taxa` (`+0.0142` C1 on GROBID, `+0.0406` Micro on Marker) improved over their immediate predecessor. Next step: test `--role-budget` and `--evidence-gates --clean-taxa` cleanly **without** `--detox-rag` against the `0.5957`/`0.5985` baselines.
+
+### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
+
+Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
+- **Oracle Per-Paper Upper Bound:**
+  - SAIA: `C1 = 0.6914 | C1+C2b = 0.5053 | Micro = 0.5025` (strict wins: `grobid 16, pymupdf 10, marker 8, docling 4`)
+  - HU: `C1 = 0.6827 | C1+C2b = 0.4787 | Micro = 0.4479` (strict wins: `grobid 16, marker 11, docling 10, pymupdf 10`)
+- **Strongest Objective Bucket Signal (zero label leakage, consistent on both models):**
+  - When GROBID drops text (`g_ratio < 0.65`, N=9) or finds few sections (`g_divs <= 3`, N=12), **Marker** beats GROBID strongly on per-bucket C1 (`+0.0993` SAIA / `+0.2559` HU on `g_ratio < 0.65`; `+0.0506` SAIA / `+0.1741` HU on `g_divs <= 3`).
+  - On structured papers (`g_ratio >= 0.65`, N=91; `g_divs > 10`, N=66), **GROBID** leads on C1+C2b (`0.4733` SAIA, `0.4572` HU).
+- **Offline 2-Rule Router (`Marker` if `g_divs <= 3` or `g_ratio < 0.65` else `GROBID`, 12/88 split):**
+  - HU: `0.5839 / 0.4317 / 0.4237` (improves C1 over GROBID `0.5706` while keeping Micro/C1+C2b near GROBID).
+  - SAIA: `0.5938 / 0.4390 / 0.4149` (slightly below GROBID `0.5957 / 0.4544 / 0.4390` due to Marker's higher FP count on sparse fields hurting corpus-level Macro/Micro-F1).
+- **4-Parser Consensus (SAIA only, 3-of-4):** `C1 = 0.5851 | C1+C2b = 0.4611 | Micro = 0.4615`.
+
+### 5. Upcoming Planned OFAT Phases (see `notes/next_steps_preprocessing.md`)
 
 1. **Phase 1 — Adaptive Parser Router (`--auto-parser`):** 4-way parser diff analysis after Docling completes $\rightarrow$ objective PDF/TEI routing heuristic $\rightarrow$ Dev-100 A/B test.
 2. **Phase 2 — Long-Paper Map-Reduce Summarization:** Chunked independent evidence extraction (Map) + RAG consolidation (Reduce) for papers exceeding budget.
