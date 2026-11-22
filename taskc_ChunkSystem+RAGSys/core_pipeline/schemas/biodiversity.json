@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "BiodiversityLevelEnum": {
+      "enum": [
+        "Artenvielfalt",
+        "Funktionelle Diversität",
+        "Genetische Diversität",
+        "Habitatdiversität",
+        "Phylogenetische Diversität",
+        "Strukturelle Diversität",
+        "Zusammensetzung der Artengemeinschaft"
+      ],
+      "title": "BiodiversityLevelEnum",
+      "type": "string"
+    },
+    "EcosystemService": {
+      "additionalProperties": false,
+      "description": "Ökosystemdienstleistung mit Kategorie, Term und Details.",
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/EcosystemServiceCategoryEnum",
+          "description": "In welche der folgenden Kategorien lässt sich die im Text behandelte Ökosystemleistung einordnen?"
+        },
+        "term": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EcosystemServiceTermEnum"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Welche konkrete Ökosystemleistung wurde untersucht?"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Details zur Ökosystemleistung",
+          "title": "Details"
+        }
+      },
+      "required": [
+        "category"
+      ],
+      "title": "EcosystemService",
+      "type": "object"
+    },
+    "EcosystemServiceCategoryEnum": {
+      "enum": [
+        "Kulturelle Leistungen",
+        "Regulierungs- und Erhaltungsleistungen",
+        "Versorgungsleistungen"
+      ],
+      "title": "EcosystemServiceCategoryEnum",
+      "type": "string"
+    },
+    "EcosystemServiceTermEnum": {
+      "enum": [
+        "1.1.1.1 Kultivierte Landpflanzen (einschließlich Pilze und Algen), die zu Ernährungszwecken angebaut werden",
+        "1.1.1.2 Fasern und andere Materialien aus kultivierten Landpflanzen, Pilzen, Algen und Bakterien zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.1.3 Kultivierte Landpflanzen (einschließlich Pilze, Algen), die zur Energiegewinnung angebaut werden",
+        "1.1.2.1 Pflanzen aus In-situ-Aquakultur, die zu Ernährungszwecken angebaut werden",
+        "1.1.2.2 Fasern und andere Materialien aus Pflanzen aus In-situ-Aquakultur zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.2.3 Pflanzen aus In-situ-Aquakultur, die als Energiequelle angebaut werden",
+        "1.1.3.1 Zu Ernährungszwecken gehaltene Tiere",
+        "1.1.3.2 Fasern und andere Materialien von gehaltenen Tieren zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.3.3 Tiere, die zur Energiegewinnung gehalten werden (auch mechanisch)",
+        "1.1.4.1 Tiere, die in In-situ-Aquakultur zu Ernährungszwecken aufgezogen werden",
+        "1.1.4.2 Fasern und andere Materialien von Tieren, die in In-situ-Aquakultur gezüchtet werden, zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.4.3 In-situ-Aquakultur aufgezogene Tiere als Energiequelle",
+        "1.1.5.1 Wildpflanzen (Land- und Wasserpflanzen, einschließlich Pilze und Algen), die zur Ernährung genutzt werden",
+        "1.1.5.2 Fasern und andere Materialien von Wildpflanzen zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.5.3 Wildpflanzen (Land- und Wasserpflanzen, einschließlich Pilze und Algen), die als Energiequelle genutzt werden",
+        "1.1.6.1 Wildtiere (Land- und Wassertiere), die zu Ernährungszwecken verwendet werden",
+        "1.1.6.2 Fasern und andere Materialien von Wildtieren zur direkten Verwendung oder Verarbeitung (ausgenommen genetisches Material)",
+        "1.1.6.3 Wildtiere (Land- und Wassertiere), die als Energiequelle genutzt werden",
+        "1.2.1.1 Saatgut, Sporen und anderes Pflanzenmaterial, das zur Erhaltung oder zum Aufbau einer Population gesammelt wird",
+        "1.2.1.2 Höhere und niedere Pflanzen (ganze Organismen), die zur Züchtung neuer Stämme oder Sorten verwendet werden",
+        "1.2.1.3 Einzelne Gene, die aus höheren und niederen Pflanzen für den Entwurf und die Konstruktion neuer biologischer Einheiten gewonnen werden",
+        "1.2.2.1 Tiermaterial, das für die Erhaltung oder den Aufbau einer Population gesammelt wurde",
+        "1.2.2.2 Wildtiere (ganze Organismen), die zur Züchtung neuer Stämme oder Sorten verwendet werden",
+        "1.2.2.3 Einzelne Gene, die aus Organismen extrahiert werden, um neue biologische Einheiten zu entwerfen und zu konstruieren",
+        "1.3.X.X Andere (Versorungsleistungen aus biotischen Quellen)",
+        "2.1.1.1 Biosanierung durch Mikroorganismen, Algen, Pflanzen und Tiere",
+        "2.1.1.2 Filtration/Sequestrierung/Speicherung/Akkumulation durch Mikroorganismen, Algen, Pflanzen und Tiere",
+        "2.1.2.1 Reduktion von Gerüchen",
+        "2.1.2.2 Reduktion von Lärm",
+        "2.1.2.3 Sichtschutz (Visual Screening)",
+        "2.2.1.1 Kontrolle der Erosionsraten",
+        "2.2.1.2 Pufferung und Abschwächung von Massenbewegungen",
+        "2.2.1.3 Wasserkreislauf und Wasserflussregulierung (einschließlich Hochwasserschutz und Küstenschutz)",
+        "2.2.1.4 Windschutz",
+        "2.2.1.5 Feuerschutz",
+        "2.2.2.1 Bestäubung (oder 'Gameten'-Ausbreitung in einem marinen Kontext)",
+        "2.2.2.2 Ausbreitung von Saatgut",
+        "2.2.2.3 Aufrechterhaltung von Aufwuchspopulationen und Lebensräumen (einschließlich Schutz des Genpools)",
+        "2.2.3.1 Schädlingsbekämpfung (einschließlich invasiver Arten)",
+        "2.2.3.2 Krankheitsbekämpfung",
+        "2.2.4.1 Verwitterungsprozesse und ihre Auswirkungen auf die Bodenqualität",
+        "2.2.4.2 Zersetzungs- und Fixierungsprozesse und ihre Auswirkungen auf die Bodenqualität",
+        "2.2.5.1 Regulierung des chemischen Zustands von Süßgewässern durch lebende Prozesse",
+        "2.2.5.2 Regulierung des chemischen Zustands von Salzwasser durch lebende Prozesse",
+        "2.2.6.1 Regulierung der chemischen Zusammensetzung der Atmosphäre und der Ozeane",
+        "2.2.6.2 Regulierung von Temperatur und Feuchtigkeit, einschließlich Belüftung und Transpiration",
+        "2.3.X.X Andere",
+        "3.1.1.1 Merkmale lebender Systeme, die durch aktive oder immersive Interaktionen Aktivitäten ermöglichen, die der Gesundheit, der Erholung oder dem Vergnügen dienen",
+        "3.1.1.2 Merkmale lebender Systeme, die Aktivitäten zur Förderung von Gesundheit, Erholung oder Vergnügen durch passive oder beobachtende Interaktionen ermöglichen",
+        "3.1.2.1 Merkmale lebender Systeme, die eine wissenschaftliche Untersuchung oder die Schaffung von traditionellem ökologischem Wissen ermöglichen",
+        "3.1.2.2 Merkmale lebender Systeme, die Bildung und Ausbildung ermöglichen",
+        "3.1.2.3 Merkmale lebender Systeme, die in Bezug auf die Kultur und Kulturerbe eine Rolle spielen",
+        "3.1.2.4 Merkmale lebender Systeme, die ästhetische Erfahrungen ermöglichen",
+        "3.2.1.1 Elemente von lebenden Systemen, die eine symbolische Bedeutung haben",
+        "3.2.1.2 Elemente von lebenden Systemen, die eine heilige oder religiöse Bedeutung haben",
+        "3.2.1.3 Elemente lebender Systeme, die zur Unterhaltung oder Darstellung verwendet werden",
+        "3.2.2.1 Merkmale oder Eigenschaften von lebenden Systemen, die einen Existenzwert haben",
+        "3.2.2.2 Merkmale oder Eigenschaften von lebenden Systemen, die einen Options- oder Vermächtniswert haben",
+        "3.3.X.X Andere",
+        "4.2.1.1 Oberflächenwasser als Trinkwasser",
+        "4.2.1.2 Oberflächenwasser, das als Material verwendet wird (nicht zu Trinkzwecken)",
+        "4.2.1.3 Oberflächenwasser aus Süßwasser, das als Energiequelle genutzt wird",
+        "4.2.1.4 Küsten- und Meereswasser, das als Energiequelle genutzt wird",
+        "4.2.2.1 Grundwasser (und Untergrundwasser) als Trinkwasser",
+        "4.2.2.2 Grundwasser (und Oberflächenwasser), das als Material verwendet wird (nicht zu Trinkzwecken)",
+        "4.2.2.3 Grundwasser (und Untergrundwasser), das als Energiequelle genutzt wird",
+        "4.2.X.X Andere (Ökosystemleistungen des Wassers)"
+      ],
+      "title": "EcosystemServiceTermEnum",
+      "type": "string"
+    },
+    "SpeciesGroupEnum": {
+      "enum": [
+        "Amphibien und Reptilien",
+        "Andere",
+        "Andere Pflanzen",
+        "Andere Wirbellose",
+        "Archaeen",
+        "Bakterien",
+        "Fische",
+        "Flechten",
+        "Gefäßpflanzen",
+        "Insekten",
+        "Moose",
+        "Pilze",
+        "Protisten",
+        "Protozoen",
+        "Säugetiere",
+        "Vögel"
+      ],
+      "title": "SpeciesGroupEnum",
+      "type": "string"
+    },
+    "Taxa": {
+      "additionalProperties": false,
+      "description": "Art mit wissenschaftlichem und deutschem Namen sowie taxonomischer Gruppe.",
+      "properties": {
+        "scientific_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Wissenschaftlicher Name der Art",
+          "title": "Scientific Name"
+        },
+        "german_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deutscher Name der Art",
+          "title": "German Name"
+        },
+        "species_group": {
+          "$ref": "#/$defs/SpeciesGroupEnum",
+          "description": "Taxonomische Gruppe der Art"
+        }
+      },
+      "required": [
+        "species_group"
+      ],
+      "title": "Taxa",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Das Schema sammelt Angaben zur untersuchten Biodiversität: Arten bzw. Artengruppen,\nBiodiversitätsebene und -variablen sowie Ökosystemleistungen.",
+  "properties": {
+    "taxa": {
+      "description": "Welche Arten bzw. Artengruppen werden in der Studie untersucht? Verwende die kleinste machbare Ebene: Wenn eine Studie nur wenige Arten behandelt, sollten diese auf Artebene mit ihrem wissenschaftlichen und deutschen Namen angegeben werden. Werden jedoch sehr viele Arten behandelt oder eine Artengruppe besprochen, wird die Artengruppe als 'Sammelbegriff' angegeben. Falls die Studie auf englisch ist, übersetze Art- bzw. Artengruppennamen ins Deutsche. Ergänze, wenn nicht angegeben, die wissenschaftlichen Artennamen, und umgekehrt die deutschen Namen, wenn nur die wissenschaftlichen Artennamen verwendet wurden. ",
+      "items": {
+        "$ref": "#/$defs/Taxa"
+      },
+      "title": "Taxa",
+      "type": "array"
+    },
+    "biodiversity_level": {
+      "description": "Auf welche der folgenden Ebenen wird Biodiversität in der Studie gemessen? ",
+      "items": {
+        "$ref": "#/$defs/BiodiversityLevelEnum"
+      },
+      "title": "Biodiversity Level",
+      "type": "array"
+    },
+    "biodiversity_variable": {
+      "description": "In welchen Variablen wird die Biodiversität gemessen?",
+      "items": {
+        "type": "string"
+      },
+      "title": "Biodiversity Variable",
+      "type": "array"
+    },
+    "ecosystem_service": {
+      "description": "Welche Ökosystemleistungen wurden in der Studie untersucht?",
+      "items": {
+        "$ref": "#/$defs/EcosystemService"
+      },
+      "title": "Ecosystem Service",
+      "type": "array"
+    }
+  },
+  "title": "EcosystemStudyFeaturesBiodiversity",
+  "type": "object"
+}
