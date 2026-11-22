@@ -162,6 +162,7 @@ def build_rag_user_prompt(
     max_total_chars: int = 16000,
     role_budget: bool = False,
     evidence_gates: bool = False,
+    full_text: bool = False,
 ) -> str:
     """Builds a compact, RAG-anchored user prompt with filtered sections and few-shot gold."""
     title = str(rec.get("bibtex_title") or "").strip()
@@ -174,9 +175,12 @@ def build_rag_user_prompt(
         )
     examples_str = "\n\n".join(examples_block)
 
-    # 2. Pack high-signal semantic sections within budget
+    # 2. Pack semantic sections (untruncated when full_text=True)
     sec_blocks = []
-    if role_budget:
+    if full_text:
+        for sec in sections:
+            sec_blocks.append(f"### SECTION: {sec['section_name']}\n{sec['text']}")
+    elif role_budget:
         budget_total = 28000
         weights = [_section_role_weight(s["section_name"]) for s in sections]
         w_sum = sum(weights) or 1.0
@@ -386,6 +390,100 @@ def apply_evidence_gates(
             norm["biodiversity_level"] = []
 
 
+def extract_auto_routed_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+    grobid_url: str,
+) -> list[dict[str, Any]]:
+    """Routes to Marker when GROBID TEI structure is sparse or drops text; else uses GROBID."""
+    py_path = REPO_ROOT / "data/parsed_text/dev_full" / f"{zot_id}.txt"
+    if not py_path.exists():
+        py_path = REPO_ROOT / "data/parsed_text/dev" / f"{zot_id}.txt"
+    if py_path.exists():
+        py_len = len(py_path.read_text(errors="ignore"))
+    else:
+        py_secs = extract_semantic_sections(zot_id, rec, pdf_dir)
+        py_len = sum(len(s["text"]) for s in py_secs)
+
+    grobid_secs = extract_grobid_chunks(zot_id, rec, pdf_dir, grobid_url)
+    g_files = list((REPO_ROOT / "data/parsed_text/grobid_dev").glob(f"{zot_id}*.xml"))
+    if g_files:
+        g_xml = g_files[0].read_text(errors="ignore")
+        g_divs = len(re.findall(r"<div[\s>]", g_xml))
+        g_len = len(re.sub(r"<[^>]+>", " ", g_xml))
+    else:
+        g_divs = len(grobid_secs)
+        g_len = sum(len(s["text"]) for s in grobid_secs)
+
+    if g_divs <= 3 or (g_len / max(1, py_len)) < 0.65:
+        marker_secs = extract_marker_sections(zot_id, rec, pdf_dir)
+        if marker_secs:
+            return marker_secs
+    return grobid_secs
+
+
+def _split_sections_by_chars(
+    sections: list[dict[str, Any]],
+    max_chars: int = 80000,
+) -> list[list[dict[str, Any]]]:
+    """Splits sections into minimal contiguous parts without truncating long papers."""
+    parts: list[list[dict[str, Any]]] = []
+    cur: list[dict[str, Any]] = []
+    cur_len = 0
+    for sec in sections:
+        text = sec["text"]
+        if len(text) > max_chars:
+            if cur:
+                parts.append(cur)
+                cur, cur_len = [], 0
+            for start in range(0, len(text), max_chars):
+                parts.append([{"section_name": sec["section_name"], "text": text[start : start + max_chars]}])
+            continue
+        if cur and cur_len + len(text) > max_chars:
+            parts.append(cur)
+            cur, cur_len = [], 0
+        cur.append(sec)
+        cur_len += len(text)
+    if cur:
+        parts.append(cur)
+    return parts or [sections]
+
+
+def _union_merge_predictions(preds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merges verified predictions across minimal full-text parts via deduplicated union."""
+    if len(preds) == 1:
+        return preds[0]
+    merged: dict[str, Any] = {}
+    for f in ("habitat", "biodiversity_level"):
+        seen: list[str] = []
+        for p in preds:
+            for v in p.get(f) or []:
+                if v not in seen:
+                    seen.append(v)
+        merged[f] = seen
+    for f in ("ecosystem_type", "ecosystem_service"):
+        seen_pairs: set[tuple[Any, Any]] = set()
+        items: list[dict[str, Any]] = []
+        for p in preds:
+            for item in p.get(f) or []:
+                k = (item.get("category"), item.get("term"))
+                if k not in seen_pairs:
+                    seen_pairs.add(k)
+                    items.append(item)
+        merged[f] = items
+    seen_taxa: set[tuple[Any, Any, Any, bool]] = set()
+    taxa_items: list[dict[str, Any]] = []
+    for p in preds:
+        for t in p.get("taxa") or []:
+            k = (t.get("species_group"), t.get("scientific_name"), t.get("german_name"), bool(t.get("collective_term", False)))
+            if k not in seen_taxa:
+                seen_taxa.add(k)
+                taxa_items.append(t)
+    merged["taxa"] = taxa_items
+    return merged
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -394,6 +492,8 @@ def main() -> None:
     parser.add_argument("--grobid-url", default=None)
     parser.add_argument("--docling", action="store_true", help="Use IBM Docling Markdown parser")
     parser.add_argument("--marker", action="store_true", help="Use Marker PDF Markdown cache")
+    parser.add_argument("--auto-parser", action="store_true", help="Route between GROBID and Marker using objective TEI/text signals")
+    parser.add_argument("--full-text", action="store_true", help="Do not truncate sections; split only if >80k chars")
     parser.add_argument("--detox-rag", action="store_true", help="Char n-gram retrieval + strip taxa from kNN anchors")
     parser.add_argument("--role-budget", action="store_true", help="28k role-weighted section budget (Methods/Results prioritized)")
     parser.add_argument("--evidence-gates", action="store_true", help="Require verbatim quote evidence on sparse fields")
@@ -431,7 +531,9 @@ def main() -> None:
         client = RobustOpenAICompatClient(args.provider, actual_model, args.temperature, args.rpm)
 
     model_slug = actual_model.replace("/", "_").replace(":", "_")
-    if args.marker:
+    if args.auto_parser:
+        parser_suffix, parser_label = "_autoparser", " + AutoParser"
+    elif args.marker:
         parser_suffix, parser_label = "_marker", " + Marker"
     elif args.docling:
         parser_suffix, parser_label = "_docling", " + Docling"
@@ -441,6 +543,7 @@ def main() -> None:
         parser_suffix, parser_label = "", ""
 
     opt_suffix = "".join([
+        "_full" if args.full_text else "",
         "_detox" if args.detox_rag else "",
         "_role" if args.role_budget else "",
         "_ev" if args.evidence_gates else "",
@@ -470,7 +573,11 @@ def main() -> None:
             continue
 
         rec = gold[zot_id]
-        if args.marker:
+        if args.auto_parser:
+            sections = extract_auto_routed_sections(
+                zot_id, rec, pdf_dir, args.grobid_url or "http://127.0.0.1:8070"
+            )
+        elif args.marker:
             sections = extract_marker_sections(zot_id, rec, pdf_dir)
         elif args.docling:
             sections = extract_docling_sections(zot_id, rec, pdf_dir)
@@ -481,24 +588,31 @@ def main() -> None:
         combined_clean_text = " ".join(s["text"] for s in sections)
         few_shots = retriever.retrieve_top_k(combined_clean_text, k=args.top_k)
 
-        user_prompt = build_rag_user_prompt(
-            rec,
-            sections,
-            few_shots,
-            field_spec,
-            role_budget=args.role_budget,
-            evidence_gates=args.evidence_gates,
-        )
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
 
-        raw_out = client.chat(system_prompt, user_prompt)
-        parsed = extract_json_block(raw_out) or {}
-        norm = normalize_prediction(parsed, field_spec)
-        if args.clean_taxa:
-            apply_clean_taxa(parsed, norm)
-        if args.evidence_gates and not isinstance(client, DryRunMockClient):
-            apply_evidence_gates(parsed, norm, combined_clean_text)
+        sec_parts = _split_sections_by_chars(sections, max_chars=80000) if args.full_text else [sections]
+        part_norms: list[dict[str, Any]] = []
+        for part_secs in sec_parts:
+            part_text = " ".join(s["text"] for s in part_secs)
+            user_prompt = build_rag_user_prompt(
+                rec,
+                part_secs,
+                few_shots,
+                field_spec,
+                role_budget=args.role_budget,
+                evidence_gates=args.evidence_gates,
+                full_text=args.full_text,
+            )
+            raw_out = client.chat(system_prompt, user_prompt)
+            parsed = extract_json_block(raw_out) or {}
+            part_norm = normalize_prediction(parsed, field_spec)
+            if args.clean_taxa:
+                apply_clean_taxa(parsed, part_norm)
+            if args.evidence_gates and not isinstance(client, DryRunMockClient):
+                apply_evidence_gates(parsed, part_norm, part_text)
+            part_norms.append(part_norm)
+        norm = _union_merge_predictions(part_norms)
         norm["zotitem_ptr_id"] = zot_id
 
         # Dense fallback for habitat if completely empty
