@@ -163,6 +163,8 @@ def build_rag_user_prompt(
     role_budget: bool = False,
     evidence_gates: bool = False,
     full_text: bool = False,
+    focus_prompt: bool = False,
+    train_rates_note: str = "",
 ) -> str:
     """Builds a compact, RAG-anchored user prompt with filtered sections and few-shot gold."""
     title = str(rec.get("bibtex_title") or "").strip()
@@ -207,6 +209,16 @@ def build_rag_user_prompt(
             "If no verbatim evidence exists in the text, leave those fields as [].\n"
         )
 
+    if focus_prompt:
+        task_instruction = (
+            "Extract what THIS document is mainly about (applies to ALL document types: empirical studies, "
+            "reports, guidelines, policy papers, and books — never leave fields empty just because it is not a study; "
+            "ignore mere background citations). Output at most 10 focal taxa."
+            f"{train_rates_note}"
+        )
+    else:
+        task_instruction = "Extract the main studied/focused attributes of THIS document (ignore background citations)."
+
     return (
         f"SIMILAR ANNOTATED EXAMPLES (follow their exact label conventions & sparsity; NEVER copy taxa from examples):\n"
         f"{examples_str}\n\n"
@@ -215,7 +227,7 @@ def build_rag_user_prompt(
         f"TARGET DOCUMENT\n"
         f"Title: {title}\n\n"
         f"{doc_text}\n\n"
-        f"Extract the main studied/focused attributes of THIS document (ignore background citations)."
+        f"{task_instruction}"
         f"{evidence_note} Return a single valid JSON object matching the schema."
     )
 
@@ -494,6 +506,7 @@ def main() -> None:
     parser.add_argument("--marker", action="store_true", help="Use Marker PDF Markdown cache")
     parser.add_argument("--auto-parser", action="store_true", help="Route between GROBID and Marker using objective TEI/text signals")
     parser.add_argument("--full-text", action="store_true", help="Do not truncate sections; split only if >80k chars")
+    parser.add_argument("--focus-prompt", action="store_true", help="Use document-focus wording + train base-rates (v2 insight)")
     parser.add_argument("--detox-rag", action="store_true", help="Char n-gram retrieval + strip taxa from kNN anchors")
     parser.add_argument("--role-budget", action="store_true", help="28k role-weighted section budget (Methods/Results prioritized)")
     parser.add_argument("--evidence-gates", action="store_true", help="Require verbatim quote evidence on sparse fields")
@@ -518,6 +531,19 @@ def main() -> None:
     print("Building TF-IDF kNN index over 908 training papers...")
     retriever = TrainKNNRetriever(train_records, train_text_dir, detox_rag=args.detox_rag)
     majority_learned = fit_majority_model(train_records)
+
+    train_rates_note = ""
+    if args.focus_prompt and train_records:
+        n_tr = len(train_records)
+        rates = {
+            f: round(100 * sum(1 for r in train_records.values() if r.get(f)) / n_tr)
+            for f in ("habitat", "biodiversity_level", "ecosystem_type", "taxa", "ecosystem_service")
+        }
+        train_rates_note = (
+            f" Empirical database non-empty rates: habitat={rates['habitat']}%, "
+            f"biodiversity_level={rates['biodiversity_level']}%, ecosystem_type={rates['ecosystem_type']}%, "
+            f"taxa={rates['taxa']}%, ecosystem_service={rates['ecosystem_service']}%."
+        )
 
     # Load official field specifications & build system prompt
     field_spec = load_field_spec()
@@ -544,6 +570,7 @@ def main() -> None:
 
     opt_suffix = "".join([
         "_full" if args.full_text else "",
+        "_focus" if args.focus_prompt else "",
         "_detox" if args.detox_rag else "",
         "_role" if args.role_budget else "",
         "_ev" if args.evidence_gates else "",
@@ -603,6 +630,8 @@ def main() -> None:
                 role_budget=args.role_budget,
                 evidence_gates=args.evidence_gates,
                 full_text=args.full_text,
+                focus_prompt=args.focus_prompt,
+                train_rates_note=train_rates_note,
             )
             raw_out = client.chat(system_prompt, user_prompt)
             parsed = extract_json_block(raw_out) or {}
