@@ -137,6 +137,21 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 
 **Clean OFAT Decision:** Keep `--evidence-gates --clean-taxa` for **SAIA DeepSeek 4.1** (`0.6040` C1 on Marker, `0.4516` Micro on GROBID); drop both `--detox-rag` and `--role-budget`. Keep baseline (no gates) for HU-Reasoning.
 
+### 3c. Phase 2 (`--full-text`) & Phase 3a (`--focus-prompt`) OFAT Runs (`bio_full_*` & `bio_night_*`, 2026-11-22 – 2026-11-23)
+
+| Variant | Provider / Model | C1 Macro-F1 | C1+C2b | Micro-F1 | Delta vs. `AutoParser` Baseline |
+|---|---|---|---|---|---|
+| `AutoParser + --evidence-gates --clean-taxa` *(offline baseline)* | `saia` / `deepseek-v4.1-flash-1017` | **0.6056** | **0.4469** | **0.4424** | — |
+| `+ --full-text` (untruncated / >80k split) | `saia` / `deepseek-v4.1-flash-1017` | 0.5615 | 0.4023 | 0.3622 | **`-0.0441` C1, `-0.0802` Micro** (noise/FP flood) |
+| `+ --focus-prompt` (v2-style wording + train rates) | `saia` / `deepseek-v4.1-flash-1017` | 0.5703 | 0.4139 | 0.3955 | **`-0.0353` C1, `-0.0469` Micro** (over-extraction) |
+| `+ --full-text --focus-prompt` | `saia` / `deepseek-v4.1-flash-1017` | 0.5651 | 0.3835 | 0.3485 | `-0.0405` C1, `-0.0939` Micro |
+| `AutoParser` *(offline baseline)* | `hu` / `hu-reasoning` | **0.5839** | **0.4317** | **0.4237** | — |
+| `+ --full-text` | `hu` / `hu-reasoning` | 0.5427 | 0.3620 | 0.3341 | **`-0.0412` C1, `-0.0896` Micro** |
+| `+ --focus-prompt` | `hu` / `hu-reasoning` | 0.5588 | 0.3968 | 0.3864 | **`-0.0251` C1, `-0.0373` Micro** |
+| `+ --full-text --focus-prompt` | `hu` / `hu-reasoning` | 0.5351 | 0.3609 | 0.3207 | `-0.0488` C1, `-0.1030` Micro |
+
+**OFAT Conclusion:** Both `--full-text` and `--focus-prompt` consistently degrade precision & Micro-F1 on **both** providers when injected into Architecture 3's RAG-anchored section prompt (16k section selection remains superior to raw untruncated dumping). Both flags are rejected for Architecture 3.
+
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
 Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
