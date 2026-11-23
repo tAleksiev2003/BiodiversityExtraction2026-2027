@@ -165,6 +165,8 @@ def build_rag_user_prompt(
     full_text: bool = False,
     focus_prompt: bool = False,
     train_rates_note: str = "",
+    self_check_reasoning: bool = False,
+    per_label_quotes: bool = False,
 ) -> str:
     """Builds a compact, RAG-anchored user prompt with filtered sections and few-shot gold."""
     title = str(rec.get("bibtex_title") or "").strip()
@@ -200,7 +202,7 @@ def build_rag_user_prompt(
     srv_terms = field_spec["ecosystem_service"]["subfields"]["term"]["values"]
 
     evidence_note = ""
-    if evidence_gates:
+    if evidence_gates and not per_label_quotes:
         evidence_note = (
             "\n\nEVIDENCE REQUIREMENT FOR SPARSE FIELDS:\n"
             "If you output `ecosystem_service` or `biodiversity_level`, also include an optional "
@@ -219,6 +221,33 @@ def build_rag_user_prompt(
     else:
         task_instruction = "Extract the main studied/focused attributes of THIS document (ignore background citations)."
 
+    reasoning_note = ""
+    if self_check_reasoning:
+        reasoning_note = (
+            "\n\nTAXA SPELLING & REASONING SELF-CHECK (R7 + S1-S5):\n"
+            "- Scientific names WITHOUT author names/years (e.g. 'Fagus sylvatica', NOT 'Fagus sylvatica L.').\n"
+            "- If only genus is known, write 'Genus spp.' (with period). At most 10 focal taxa; if >10, give higher group(s).\n"
+            "- German names capitalized with normal German spelling (e.g. 'Rot-Buche').\n"
+            "- Before final fields, include a compact `\"reasoning\"` string (max 120 words): "
+            "'S1 (habitat/eco): ... S2 (taxa): ... S3 (bio_level): ... S4 (services): ... "
+            "S5 (self-check: verify allowed list, main subject, exact text support; drop failures).' "
+        )
+
+    output_note = " Return a single valid JSON object matching the schema."
+    if per_label_quotes:
+        output_note = (
+            "\n\nOUTPUT FORMAT (PER-LABEL VERBATIM QUOTES):\n"
+            "Every single label MUST carry a verbatim `\"quote\"` (3 to 60 words copied character-by-character from TARGET DOCUMENT above).\n"
+            "Return ONE JSON object only:\n"
+            '{"reasoning": "S1: ... S2: ... S3: ... S4: ... S5: ...", "labels": ['
+            '{"field": "habitat", "value": "<allowed>", "quote": "<3-60 words>"}, '
+            '{"field": "ecosystem_type", "category": "<allowed>", "term": "<allowed or null>", "quote": "<3-60 words>"}, '
+            '{"field": "biodiversity_level", "value": "<allowed>", "quote": "<3-60 words>"}, '
+            '{"field": "taxa", "species_group": "<allowed>", "scientific_name": "<name or null>", "german_name": "<name or null>", "collective_term": false, "quote": "<3-60 words>"}, '
+            '{"field": "ecosystem_service", "category": "<allowed>", "term": "<allowed or null>", "quote": "<3-60 words>"}'
+            "]}"
+        )
+
     return (
         f"SIMILAR ANNOTATED EXAMPLES (follow their exact label conventions & sparsity; NEVER copy taxa from examples):\n"
         f"{examples_str}\n\n"
@@ -228,7 +257,7 @@ def build_rag_user_prompt(
         f"Title: {title}\n\n"
         f"{doc_text}\n\n"
         f"{task_instruction}"
-        f"{evidence_note} Return a single valid JSON object matching the schema."
+        f"{reasoning_note}{evidence_note}{output_note}"
     )
 
 
@@ -496,6 +525,46 @@ def _union_merge_predictions(preds: list[dict[str, Any]]) -> dict[str, Any]:
     return merged
 
 
+def parse_and_verify_flat_labels(
+    raw_pred: dict[str, Any],
+    source_text: str,
+    verify_quotes: bool = True,
+) -> dict[str, Any]:
+    """Converts Minh Anh's flat `labels` output to schema dict, dropping invalid 3-60 word quotes."""
+    if not isinstance(raw_pred.get("labels"), list):
+        return raw_pred
+    out: dict[str, Any] = {
+        "habitat": [],
+        "ecosystem_type": [],
+        "biodiversity_level": [],
+        "taxa": [],
+        "ecosystem_service": [],
+    }
+    for item in raw_pred["labels"]:
+        if not isinstance(item, dict):
+            continue
+        if verify_quotes:
+            q = str(item.get("quote") or "").strip()
+            wc = len(q.split())
+            if wc < 3 or wc > 60 or not verify_verbatim_quote(q, source_text):
+                continue
+        fld = item.get("field")
+        if fld in ("habitat", "biodiversity_level"):
+            val = item.get("value")
+            if isinstance(val, str) and val.strip():
+                out[fld].append(val.strip())
+        elif fld in ("ecosystem_type", "ecosystem_service"):
+            out[fld].append({"category": item.get("category"), "term": item.get("term")})
+        elif fld == "taxa":
+            out["taxa"].append({
+                "species_group": item.get("species_group"),
+                "scientific_name": item.get("scientific_name"),
+                "german_name": item.get("german_name"),
+                "collective_term": bool(item.get("collective_term", False)),
+            })
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -511,6 +580,8 @@ def main() -> None:
     parser.add_argument("--role-budget", action="store_true", help="28k role-weighted section budget (Methods/Results prioritized)")
     parser.add_argument("--evidence-gates", action="store_true", help="Require verbatim quote evidence on sparse fields")
     parser.add_argument("--clean-taxa", action="store_true", help="Do not fabricate '-' or species_group fallbacks in taxa")
+    parser.add_argument("--self-check-reasoning", action="store_true", help="Structured S1-S5 self-check reasoning + R7 taxa spelling rules")
+    parser.add_argument("--per-label-quotes", action="store_true", help="Flat labels JSON with 3-60 word verbatim quote check on every label")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -575,6 +646,8 @@ def main() -> None:
         "_role" if args.role_budget else "",
         "_ev" if args.evidence_gates else "",
         "_ctaxa" if args.clean_taxa else "",
+        "_s5" if args.self_check_reasoning else "",
+        "_plq" if args.per_label_quotes else "",
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -632,13 +705,19 @@ def main() -> None:
                 full_text=args.full_text,
                 focus_prompt=args.focus_prompt,
                 train_rates_note=train_rates_note,
+                self_check_reasoning=args.self_check_reasoning,
+                per_label_quotes=args.per_label_quotes,
             )
             raw_out = client.chat(system_prompt, user_prompt)
             parsed = extract_json_block(raw_out) or {}
+            if args.per_label_quotes:
+                parsed = parse_and_verify_flat_labels(
+                    parsed, part_text, verify_quotes=not isinstance(client, DryRunMockClient)
+                )
             part_norm = normalize_prediction(parsed, field_spec)
             if args.clean_taxa:
                 apply_clean_taxa(parsed, part_norm)
-            if args.evidence_gates and not isinstance(client, DryRunMockClient):
+            if args.evidence_gates and not args.per_label_quotes and not isinstance(client, DryRunMockClient):
                 apply_evidence_gates(parsed, part_norm, part_text)
             part_norms.append(part_norm)
         norm = _union_merge_predictions(part_norms)
