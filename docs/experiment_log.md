@@ -152,6 +152,15 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 
 **OFAT Conclusion:** Both `--full-text` and `--focus-prompt` consistently degrade precision & Micro-F1 on **both** providers when injected into Architecture 3's RAG-anchored section prompt (16k section selection remains superior to raw untruncated dumping). Both flags are rejected for Architecture 3.
 
+### 3d. Phase 3b: Minh Anh Building Blocks (`--self-check-reasoning` & `--per-label-quotes`, 2026-11-23)
+
+| Variant | Provider / Model | C1 Macro-F1 | C1+C2b | Micro-F1 | Delta vs. `AutoParser` Baseline |
+|---|---|---|---|---|---|
+| `AutoParser + --ev --ctaxa --self-check-reasoning` (`_s5`) | `saia` / `deepseek-4.1` | 0.5861 | **0.4489** | **0.4551** | `-0.0195` C1, `+0.0020` C1+C2b, **`+0.0127` Micro** (new single-model Micro best) |
+| `AutoParser + --ctaxa --s5 --per-label-quotes` (`_plq`) | `saia` / `deepseek-4.1` | 0.5856 | 0.4404 | **0.4671** | `-0.0200` C1, **`+0.0247` Micro** vs. AutoParser base (all-time single-model Micro best!) |
+| `AutoParser + --self-check-reasoning` (`_s5`) | `hu` / `hu-reasoning` | running (69/100) | — | — | — |
+| `AutoParser + --s5 --per-label-quotes` (`_plq`) | `hu` / `hu-reasoning` | queued | — | — | — |
+
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
 Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
