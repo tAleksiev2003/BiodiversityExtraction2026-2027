@@ -160,6 +160,12 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 | `AutoParser + --ctaxa --s5 --per-label-quotes` (`_plq`) | `saia` / `deepseek-4.1` | 0.5856 | 0.4404 | **0.4671** | `-0.0200` C1, **`+0.0247` Micro** vs. AutoParser base (all-time single-model Micro best!) |
 | `AutoParser + --self-check-reasoning` (`_s5`) | `hu` / `hu-reasoning` | 0.5459 | 0.3998 | 0.3928 | `-0.0380` C1 vs. HU AutoParser (`0.5839`) |
 | `AutoParser + --s5 --per-label-quotes` (`_plq`) | `hu` / `hu-reasoning` | 0.5304 | 0.3876 | 0.3910 | `-0.0535` C1 vs. HU AutoParser (`0.5839`) |
+| `AutoParser + --ev --ctaxa --eco-category-map` (`_ecomap`) | `saia` / `deepseek-4.1` | 0.5766 | 0.4167 | 0.3937 | `-0.0290` C1 vs. AutoParser (`0.6056`) |
+| `AutoParser + --ev --ctaxa --level-prompt` (`_lvl`) | `saia` / `deepseek-4.1` | 0.5770 | 0.4441 | 0.4385 | `-0.0286` C1 vs. AutoParser (`0.6056`) |
+| `AutoParser + --eco-category-map` (`_ecomap`) | `hu` / `hu-reasoning` | 0.5689 | 0.4134 | 0.4196 | `-0.0150` C1 vs. HU AutoParser (`0.5839`) |
+| `AutoParser + --level-prompt` (`_lvl`) | `hu` / `hu-reasoning` | 0.5474 | 0.4118 | 0.4238 | `-0.0365` C1 vs. HU AutoParser (`0.5839`) |
+
+**Key Architectural Insight (2026-11-24):** Injecting individual pieces of Minh Anh's `v4` pipeline into Architecture 3's prompt consistently underperforms (`0.54–0.58` C1 vs. `0.6056`). Rather than running a heavy multi-model consensus ensemble, the clean efficient synthesis is: **our `--auto-parser` (GROBID + Marker fallback) + `--clean-taxa` preprocessing/postprocessing paired with Minh Anh's complete `v4` prompt + 3–60w quote check in 1 call/paper**.
 
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
