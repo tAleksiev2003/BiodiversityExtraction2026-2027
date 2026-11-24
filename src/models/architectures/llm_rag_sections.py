@@ -92,12 +92,13 @@ class TrainKNNRetriever:
         train_records: dict[str, dict[str, Any]],
         train_text_dir: Path,
         detox_rag: bool = False,
+        bilingual_knn: bool = False,
     ):
         self.train_ids = sorted(train_records.keys())
         self.train_records = train_records
         self.detox_rag = detox_rag
         docs = [_load_corpus_text(zid, train_records[zid], train_text_dir) for zid in self.train_ids]
-        if detox_rag:
+        if detox_rag or bilingual_knn:
             # Bilingual char n-grams match both German/English text and Latin taxon stems
             self.vectorizer = TfidfVectorizer(
                 max_features=20000, analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True
@@ -677,10 +678,14 @@ def build_v4_user_prompt(
     field_spec: dict[str, Any],
     eco_category_map_str: str,
     max_total_chars: int = 16000,
+    full_text: bool = False,
 ) -> str:
     """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections."""
-    budget_per_sec = max(2500, max_total_chars // max(1, len(sections)))
-    doc_text = "\n\n".join(f"### SECTION: {s['section_name']}\n{s['text'][:budget_per_sec]}" for s in sections)
+    if full_text:
+        doc_text = "\n\n".join(f"### SECTION: {s['section_name']}\n{s['text']}" for s in sections)
+    else:
+        budget_per_sec = max(2500, max_total_chars // max(1, len(sections)))
+        doc_text = "\n\n".join(f"### SECTION: {s['section_name']}\n{s['text'][:budget_per_sec]}" for s in sections)
 
     hab_vals = json.dumps(field_spec["habitat"]["values"], ensure_ascii=False)
     lvl_vals = json.dumps(field_spec["biodiversity_level"]["values"], ensure_ascii=False)
@@ -750,6 +755,7 @@ def main() -> None:
     parser.add_argument("--eco-category-map", action="store_true", help="Group allowed ecosystem_type terms under each category")
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
+    parser.add_argument("--bilingual-knn", action="store_true", help="Use bilingual char_wb 3-5 TF-IDF retrieval without stripping taxa")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -768,7 +774,9 @@ def main() -> None:
     train_text_dir = REPO_ROOT / "data/parsed_text/train"
 
     print("Building TF-IDF kNN index over 908 training papers...")
-    retriever = TrainKNNRetriever(train_records, train_text_dir, detox_rag=args.detox_rag)
+    retriever = TrainKNNRetriever(
+        train_records, train_text_dir, detox_rag=args.detox_rag, bilingual_knn=args.bilingual_knn
+    )
     majority_learned = fit_majority_model(train_records)
 
     train_rates_note = ""
@@ -829,6 +837,7 @@ def main() -> None:
         "_ecomap" if args.eco_category_map else "",
         "_lvl" if args.level_prompt else "",
         "_v4" if args.v4_prompt else "",
+        "_biknn" if args.bilingual_knn else "",
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -879,7 +888,7 @@ def main() -> None:
             part_text = " ".join(s["text"] for s in part_secs)
             if args.v4_prompt:
                 user_prompt = build_v4_user_prompt(
-                    rec, part_secs, few_shots, field_spec, eco_category_map_str
+                    rec, part_secs, few_shots, field_spec, eco_category_map_str, full_text=args.full_text
                 )
             else:
                 user_prompt = build_rag_user_prompt(
