@@ -167,6 +167,7 @@ def build_rag_user_prompt(
     train_rates_note: str = "",
     self_check_reasoning: bool = False,
     per_label_quotes: bool = False,
+    eco_category_map_str: str = "",
 ) -> str:
     """Builds a compact, RAG-anchored user prompt with filtered sections and few-shot gold."""
     title = str(rec.get("bibtex_title") or "").strip()
@@ -200,6 +201,11 @@ def build_rag_user_prompt(
     # 3. Term enums reminder (high-leverage E1 finding)
     eco_terms = field_spec["ecosystem_type"]["subfields"]["term"]["values"]
     srv_terms = field_spec["ecosystem_service"]["subfields"]["term"]["values"]
+    eco_block = (
+        f"ALLOWED ECOSYSTEM_TYPE TERMS BY CATEGORY (pair each term ONLY with its matching category):\n{eco_category_map_str}"
+        if eco_category_map_str
+        else f"ALLOWED ECOSYSTEM_TYPE.TERM VALUES:\n{json.dumps(eco_terms, ensure_ascii=False)}"
+    )
 
     evidence_note = ""
     if evidence_gates and not per_label_quotes:
@@ -251,7 +257,7 @@ def build_rag_user_prompt(
     return (
         f"SIMILAR ANNOTATED EXAMPLES (follow their exact label conventions & sparsity; NEVER copy taxa from examples):\n"
         f"{examples_str}\n\n"
-        f"ALLOWED ECOSYSTEM_TYPE.TERM VALUES:\n{json.dumps(eco_terms, ensure_ascii=False)}\n\n"
+        f"{eco_block}\n\n"
         f"ALLOWED ECOSYSTEM_SERVICE.TERM VALUES:\n{json.dumps(srv_terms, ensure_ascii=False)}\n\n"
         f"TARGET DOCUMENT\n"
         f"Title: {title}\n\n"
@@ -565,6 +571,63 @@ def parse_and_verify_flat_labels(
     return out
 
 
+LEVEL_V1_SYSTEM = (
+    "You are an ecologist who annotates scientific studies for a German literature database on biodiversity. "
+    "Decide ONLY one field: biodiversity_level, the levels of biodiversity that THIS document examines. "
+    "Prove every answer with an exact verbatim quote from the text."
+)
+
+
+def run_level_prompt_call(
+    client: Any,
+    rec: dict[str, Any],
+    part_text: str,
+    few_shots: list[dict[str, Any]],
+    allowed_levels: list[str],
+    min_confidence: float = 0.5,
+) -> list[str] | None:
+    """Focused second call (level_v1 style) for biodiversity_level with quote verification."""
+    ex_lines = []
+    for idx, ex in enumerate(few_shots, 1):
+        lvls = ex["gold_json"].get("biodiversity_level") or []
+        ex_lines.append(f"Example {idx} ({ex['title']}): {json.dumps(lvls, ensure_ascii=False)}")
+    user_p = (
+        "Decide which biodiversity_level values THIS document examines as a main subject (ignore background citations). "
+        "About 40% of documents have no level ([]). Allowed values (copy character by character):\n"
+        "- Artenvielfalt (species richness, diversity indices, species lists)\n"
+        "- Zusammensetzung der Artengemeinschaft (community composition, assemblages, abundance comparisons)\n"
+        "- Habitatdiversität (variety of habitats/biotopes, habitat heterogeneity/mosaics)\n"
+        "- Funktionelle Diversität (functional traits/groups, ecosystem functions)\n"
+        "- Genetische Diversität (genetic variation, populations, molecular markers)\n"
+        "- Strukturelle Diversität (stand/vegetation structure, layers, deadwood)\n"
+        "- Phylogenetische Diversität (phylogenetic diversity/trees)\n\n"
+        "Similar training examples (biodiversity_level):\n" + "\n".join(ex_lines) + "\n\n"
+        f"Title: {str(rec.get('bibtex_title') or '').strip()}\n"
+        f"Text:\n{part_text[:16000]}\n\n"
+        'Return ONE JSON object only: {"reasoning": "S1: ... S2: ...", "labels": '
+        '[{"field": "biodiversity_level", "value": "<allowed>", "confidence": 0.5, "quote": "<3-60 words verbatim>"}]}'
+    )
+    raw = client.chat(LEVEL_V1_SYSTEM, user_p)
+    parsed = extract_json_block(raw)
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("labels"), list):
+        return None
+    allowed_set = set(allowed_levels)
+    verified: list[str] = []
+    for item in parsed["labels"]:
+        if not isinstance(item, dict):
+            continue
+        val = str(item.get("value") or "").strip()
+        if val not in allowed_set:
+            continue
+        conf = float(item.get("confidence", 1.0) or 0.0)
+        q = str(item.get("quote") or "").strip()
+        wc = len(q.split())
+        if conf >= min_confidence and 3 <= wc <= 60 and verify_verbatim_quote(q, part_text):
+            if val not in verified:
+                verified.append(val)
+    return verified
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -582,6 +645,8 @@ def main() -> None:
     parser.add_argument("--clean-taxa", action="store_true", help="Do not fabricate '-' or species_group fallbacks in taxa")
     parser.add_argument("--self-check-reasoning", action="store_true", help="Structured S1-S5 self-check reasoning + R7 taxa spelling rules")
     parser.add_argument("--per-label-quotes", action="store_true", help="Flat labels JSON with 3-60 word verbatim quote check on every label")
+    parser.add_argument("--eco-category-map", action="store_true", help="Group allowed ecosystem_type terms under each category")
+    parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -620,6 +685,16 @@ def main() -> None:
     field_spec = load_field_spec()
     system_prompt = SYSTEM_PROMPT + "\n\nFIELD SCHEMA & GUIDELINES:\n" + format_field_spec(field_spec)
 
+    eco_category_map_str = ""
+    if args.eco_category_map:
+        cat_terms: dict[str, set[str]] = {c: set() for c in field_spec["ecosystem_type"]["subfields"]["category"]["values"]}
+        for r in train_records.values():
+            for et in r.get("ecosystem_type") or []:
+                c, t = et.get("category"), et.get("term")
+                if c in cat_terms and t:
+                    cat_terms[c].add(t)
+        eco_category_map_str = "\n".join(f"- {c}: {json.dumps(sorted(ts), ensure_ascii=False)}" for c, ts in cat_terms.items())
+
     if args.dry_run:
         client: Any = DryRunMockClient(train_records)
         actual_model = "dryrun-mock"
@@ -648,6 +723,8 @@ def main() -> None:
         "_ctaxa" if args.clean_taxa else "",
         "_s5" if args.self_check_reasoning else "",
         "_plq" if args.per_label_quotes else "",
+        "_ecomap" if args.eco_category_map else "",
+        "_lvl" if args.level_prompt else "",
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -707,6 +784,7 @@ def main() -> None:
                 train_rates_note=train_rates_note,
                 self_check_reasoning=args.self_check_reasoning,
                 per_label_quotes=args.per_label_quotes,
+                eco_category_map_str=eco_category_map_str,
             )
             raw_out = client.chat(system_prompt, user_prompt)
             parsed = extract_json_block(raw_out) or {}
@@ -719,6 +797,16 @@ def main() -> None:
                 apply_clean_taxa(parsed, part_norm)
             if args.evidence_gates and not args.per_label_quotes and not isinstance(client, DryRunMockClient):
                 apply_evidence_gates(parsed, part_norm, part_text)
+            if args.level_prompt and not isinstance(client, DryRunMockClient):
+                lvl_override = run_level_prompt_call(
+                    client,
+                    rec,
+                    part_text,
+                    few_shots,
+                    field_spec["biodiversity_level"]["values"],
+                )
+                if lvl_override is not None:
+                    part_norm["biodiversity_level"] = lvl_override
             part_norms.append(part_norm)
         norm = _union_merge_predictions(part_norms)
         norm["zotitem_ptr_id"] = zot_id

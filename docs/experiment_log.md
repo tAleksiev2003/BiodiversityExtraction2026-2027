@@ -158,8 +158,8 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 |---|---|---|---|---|---|
 | `AutoParser + --ev --ctaxa --self-check-reasoning` (`_s5`) | `saia` / `deepseek-4.1` | 0.5861 | **0.4489** | **0.4551** | `-0.0195` C1, `+0.0020` C1+C2b, **`+0.0127` Micro** (new single-model Micro best) |
 | `AutoParser + --ctaxa --s5 --per-label-quotes` (`_plq`) | `saia` / `deepseek-4.1` | 0.5856 | 0.4404 | **0.4671** | `-0.0200` C1, **`+0.0247` Micro** vs. AutoParser base (all-time single-model Micro best!) |
-| `AutoParser + --self-check-reasoning` (`_s5`) | `hu` / `hu-reasoning` | running (69/100) | — | — | — |
-| `AutoParser + --s5 --per-label-quotes` (`_plq`) | `hu` / `hu-reasoning` | queued | — | — | — |
+| `AutoParser + --self-check-reasoning` (`_s5`) | `hu` / `hu-reasoning` | 0.5459 | 0.3998 | 0.3928 | `-0.0380` C1 vs. HU AutoParser (`0.5839`) |
+| `AutoParser + --s5 --per-label-quotes` (`_plq`) | `hu` / `hu-reasoning` | 0.5304 | 0.3876 | 0.3910 | `-0.0535` C1 vs. HU AutoParser (`0.5839`) |
 
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
