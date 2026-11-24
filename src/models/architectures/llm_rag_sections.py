@@ -132,6 +132,7 @@ class TrainKNNRetriever:
             examples.append(
                 {
                     "title": str(rec.get("bibtex_title") or "")[:180],
+                    "bibtex_type": str(rec.get("bibtex_type") or "unknown"),
                     "gold_json": gold_compact,
                 }
             )
@@ -628,6 +629,107 @@ def run_level_prompt_call(
     return verified
 
 
+V4_SYSTEM_PROMPT = (
+    "You are an ecologist who annotates scientific studies for a German literature database on biodiversity. "
+    "You extract what THIS document is mainly about, and you prove every answer with an exact quote from the text you are given."
+)
+
+
+def format_v4_examples(few_shot_examples: list[dict[str, Any]], max_taxa: int = 5) -> str:
+    """Formats kNN examples cleanly in Minh Anh's compact v4 style (with bibtex_type)."""
+    blocks = []
+    for idx, ex in enumerate(few_shot_examples, 1):
+        g = ex["gold_json"]
+        btype = ex.get("bibtex_type") or "unknown"
+        lines = [f"Example {idx}: {json.dumps(ex['title'], ensure_ascii=False)} (bibtex_type: {btype})"]
+        for fld in ("habitat", "biodiversity_level"):
+            vals = g.get(fld) or []
+            lines.append(f"- {fld}: {'; '.join(json.dumps(v, ensure_ascii=False) for v in vals) if vals else '(empty)'}")
+        for fld in ("ecosystem_type", "ecosystem_service"):
+            vals = g.get(fld) or []
+            if vals:
+                parts = [f"{json.dumps(e.get('category'), ensure_ascii=False)} / {json.dumps(e.get('term'), ensure_ascii=False)}" for e in vals]
+                lines.append(f"- {fld} (category / term): {'; '.join(parts)}")
+            else:
+                lines.append(f"- {fld} (category / term): (empty)")
+        taxa = g.get("taxa") or []
+        if taxa:
+            shown = taxa[:max_taxa]
+            tparts = [
+                " / ".join(
+                    json.dumps(t.get(k), ensure_ascii=False) if t.get(k) else "null"
+                    for k in ("scientific_name", "german_name", "species_group")
+                )
+                for t in shown
+            ]
+            more = f" (and {len(taxa) - len(shown)} more)" if len(taxa) > len(shown) else ""
+            lines.append(f"- taxa (scientific_name / german_name / species_group): {'; '.join(tparts)}{more}")
+        else:
+            lines.append("- taxa (scientific_name / german_name / species_group): (empty)")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def build_v4_user_prompt(
+    rec: dict[str, Any],
+    sections: list[dict[str, Any]],
+    few_shot_examples: list[dict[str, Any]],
+    field_spec: dict[str, Any],
+    eco_category_map_str: str,
+    max_total_chars: int = 16000,
+) -> str:
+    """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections."""
+    budget_per_sec = max(2500, max_total_chars // max(1, len(sections)))
+    doc_text = "\n\n".join(f"### SECTION: {s['section_name']}\n{s['text'][:budget_per_sec]}" for s in sections)
+
+    hab_vals = json.dumps(field_spec["habitat"]["values"], ensure_ascii=False)
+    lvl_vals = json.dumps(field_spec["biodiversity_level"]["values"], ensure_ascii=False)
+    grp_vals = json.dumps(field_spec["taxa"]["subfields"]["species_group"]["values"], ensure_ascii=False)
+    srv_cats = json.dumps(field_spec["ecosystem_service"]["subfields"]["category"]["values"], ensure_ascii=False)
+    srv_terms = json.dumps(field_spec["ecosystem_service"]["subfields"]["term"]["values"], ensure_ascii=False)
+    examples_str = format_v4_examples(few_shot_examples)
+    title = str(rec.get("bibtex_title") or "").strip()
+
+    return (
+        f"## Task\nRead the text below (Title: {title}) and fill the record described in \"Fields\". "
+        "Work through the reasoning steps first, then give the record.\n\n"
+        f"## Fields\n"
+        f"1. habitat (choose 0..n): {hab_vals}\n"
+        f"2. ecosystem_type (choose 0..n pairs of category and term; term must belong to its category):\n{eco_category_map_str}\n"
+        f"3. biodiversity_level (choose 0..n): {lvl_vals}\n"
+        f"4. taxa (0..n entries): species_group (choose 1): {grp_vals}; plus scientific_name and german_name (rule R7).\n"
+        f"5. ecosystem_service (choose 0..n pairs; term is optional):\n"
+        f"   category: {srv_cats}\n"
+        f"   term: {srv_terms}\n\n"
+        "## Hard rules\n"
+        "R1 Allowed values only: copy values character by character.\n"
+        "R2 No label without evidence: every label needs a verbatim \"quote\" (3 to 60 words from the text below, no \"...\").\n"
+        "R3 Main subject only: label what THIS document is mainly about (studies, reviews, reports, policy papers, books). Ignore single examples, background, or citations of other work.\n"
+        "R4 Empirical rates: habitat ~94% (usually 1), taxa ~73%, biodiversity_level ~58%, ecosystem_type ~50% (usually <=1 pair), ecosystem_service ~22%. Empty is valid except usually habitat.\n"
+        "R5 No world knowledge about locations/methods not in text (except R7 taxa names, and habitat may be derived from described environment).\n"
+        "R6 Consistency: ecosystem_type term must match its category.\n"
+        "R7 Taxa names: scientific names WITHOUT author/year ('Fagus sylvatica', not 'Fagus sylvatica L.'); genus only -> 'Genus spp.'; German names capitalized ('Rot-Buche'); at most 10 taxa entries (if more, give higher group).\n"
+        "R8 Answer with ONE JSON object only.\n\n"
+        "## Reasoning steps (write into \"reasoning\", max 120 words)\n"
+        "S1 Study system -> habitat, ecosystem_type\n"
+        "S2 Organisms -> taxa\n"
+        "S3 Measurements -> biodiversity_level\n"
+        "S4 Services -> ecosystem_service\n"
+        "S5 Self-check: verify allowed list, exact quote, main subject (R3); drop failures.\n\n"
+        "## Output structure\n"
+        '{"reasoning": "S1: ... S2: ... S3: ... S4: ... S5: ...", "labels": ['
+        '{"field": "habitat", "value": "<allowed>", "quote": "<verbatim quote>"}, '
+        '{"field": "ecosystem_type", "category": "<allowed>", "term": "<allowed or null>", "quote": "<verbatim quote>"}, '
+        '{"field": "biodiversity_level", "value": "<allowed>", "quote": "<verbatim quote>"}, '
+        '{"field": "taxa", "species_group": "<allowed>", "scientific_name": "<name or null>", "german_name": "<name or null>", "collective_term": false, "quote": "<verbatim quote>"}, '
+        '{"field": "ecosystem_service", "category": "<allowed>", "term": "<allowed or null>", "quote": "<verbatim quote>"}'
+        "]}\n\n"
+        "## How the database labelled similar documents (training examples)\n"
+        f"{examples_str}\n\n"
+        f"## Text\n<<<\n{doc_text}\n>>>"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Architecture 3: RAG-Anchored Section Routing Pipeline")
     parser.add_argument("--provider", choices=list(PROVIDERS.keys()), default="saia")
@@ -647,6 +749,7 @@ def main() -> None:
     parser.add_argument("--per-label-quotes", action="store_true", help="Flat labels JSON with 3-60 word verbatim quote check on every label")
     parser.add_argument("--eco-category-map", action="store_true", help="Group allowed ecosystem_type terms under each category")
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
+    parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -683,10 +786,10 @@ def main() -> None:
 
     # Load official field specifications & build system prompt
     field_spec = load_field_spec()
-    system_prompt = SYSTEM_PROMPT + "\n\nFIELD SCHEMA & GUIDELINES:\n" + format_field_spec(field_spec)
+    system_prompt = V4_SYSTEM_PROMPT if args.v4_prompt else (SYSTEM_PROMPT + "\n\nFIELD SCHEMA & GUIDELINES:\n" + format_field_spec(field_spec))
 
     eco_category_map_str = ""
-    if args.eco_category_map:
+    if args.eco_category_map or args.v4_prompt:
         cat_terms: dict[str, set[str]] = {c: set() for c in field_spec["ecosystem_type"]["subfields"]["category"]["values"]}
         for r in train_records.values():
             for et in r.get("ecosystem_type") or []:
@@ -725,6 +828,7 @@ def main() -> None:
         "_plq" if args.per_label_quotes else "",
         "_ecomap" if args.eco_category_map else "",
         "_lvl" if args.level_prompt else "",
+        "_v4" if args.v4_prompt else "",
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -763,7 +867,8 @@ def main() -> None:
         else:
             sections = extract_semantic_sections(zot_id, rec, pdf_dir)
         combined_clean_text = " ".join(s["text"] for s in sections)
-        few_shots = retriever.retrieve_top_k(combined_clean_text, k=args.top_k)
+        effective_k = 3 if (args.v4_prompt and args.top_k == 2) else args.top_k
+        few_shots = retriever.retrieve_top_k(combined_clean_text, k=effective_k)
 
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
@@ -772,23 +877,28 @@ def main() -> None:
         part_norms: list[dict[str, Any]] = []
         for part_secs in sec_parts:
             part_text = " ".join(s["text"] for s in part_secs)
-            user_prompt = build_rag_user_prompt(
-                rec,
-                part_secs,
-                few_shots,
-                field_spec,
-                role_budget=args.role_budget,
-                evidence_gates=args.evidence_gates,
-                full_text=args.full_text,
-                focus_prompt=args.focus_prompt,
-                train_rates_note=train_rates_note,
-                self_check_reasoning=args.self_check_reasoning,
-                per_label_quotes=args.per_label_quotes,
-                eco_category_map_str=eco_category_map_str,
-            )
+            if args.v4_prompt:
+                user_prompt = build_v4_user_prompt(
+                    rec, part_secs, few_shots, field_spec, eco_category_map_str
+                )
+            else:
+                user_prompt = build_rag_user_prompt(
+                    rec,
+                    part_secs,
+                    few_shots,
+                    field_spec,
+                    role_budget=args.role_budget,
+                    evidence_gates=args.evidence_gates,
+                    full_text=args.full_text,
+                    focus_prompt=args.focus_prompt,
+                    train_rates_note=train_rates_note,
+                    self_check_reasoning=args.self_check_reasoning,
+                    per_label_quotes=args.per_label_quotes,
+                    eco_category_map_str=eco_category_map_str,
+                )
             raw_out = client.chat(system_prompt, user_prompt)
             parsed = extract_json_block(raw_out) or {}
-            if args.per_label_quotes:
+            if args.per_label_quotes or args.v4_prompt:
                 parsed = parse_and_verify_flat_labels(
                     parsed, part_text, verify_quotes=not isinstance(client, DryRunMockClient)
                 )
