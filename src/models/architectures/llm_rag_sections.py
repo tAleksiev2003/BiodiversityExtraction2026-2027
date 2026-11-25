@@ -472,6 +472,104 @@ def extract_auto_routed_sections(
     return grobid_secs
 
 
+def extract_raw_auto_text(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+    grobid_url: str,
+) -> list[dict[str, Any]]:
+    """Returns the unfiltered full AutoParser document text in one section (no 4-section filtering)."""
+    py_path = REPO_ROOT / "data/parsed_text/dev_full" / f"{zot_id}.txt"
+    if not py_path.exists():
+        py_path = REPO_ROOT / "data/parsed_text/dev" / f"{zot_id}.txt"
+    py_txt = py_path.read_text(errors="ignore") if py_path.exists() else ""
+    py_len = len(py_txt)
+
+    g_files = list((REPO_ROOT / "data/parsed_text/grobid_dev").glob(f"{zot_id}*.xml"))
+    if not g_files:
+        extract_grobid_chunks(zot_id, rec, pdf_dir, grobid_url)
+        g_files = list((REPO_ROOT / "data/parsed_text/grobid_dev").glob(f"{zot_id}*.xml"))
+    g_xml = g_files[0].read_text(errors="ignore") if g_files else ""
+    g_divs = len(re.findall(r"<div[\s>]", g_xml))
+    g_body_m = re.search(r"<body[^>]*>(.*?)</body>", g_xml, flags=re.S)
+    g_body_txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", g_body_m.group(1) if g_body_m else g_xml)).strip()
+
+    use_marker = g_divs <= 3 or (len(g_body_txt) / max(1, py_len)) < 0.65
+    if use_marker:
+        m_path = REPO_ROOT / "data/parsed_text/marker_dev" / f"{zot_id}.md"
+        if m_path.exists():
+            m_txt = m_path.read_text(errors="ignore").strip()
+            if m_txt:
+                return [{"section_name": "Full Document (Marker)", "text": m_txt}]
+    if g_body_txt:
+        return [{"section_name": "Full Document (GROBID)", "text": g_body_txt}]
+    return [{"section_name": "Full Document (PyMuPDF)", "text": py_txt}]
+
+
+def strict_normalize_prediction(
+    parsed: dict[str, Any],
+    field_spec: dict[str, Any],
+) -> dict[str, Any]:
+    """Exact-enum normalization without fuzzy substring guessing (matches Minh Anh's verifier)."""
+    hab_set = set(field_spec["habitat"]["values"])
+    lvl_set = set(field_spec["biodiversity_level"]["values"])
+    ecat_set = set(field_spec["ecosystem_type"]["subfields"]["category"]["values"])
+    eterm_set = set(field_spec["ecosystem_type"]["subfields"]["term"]["values"])
+    grp_set = set(field_spec["taxa"]["subfields"]["species_group"]["values"])
+    scat_set = set(field_spec["ecosystem_service"]["subfields"]["category"]["values"])
+    sterm_set = set(field_spec["ecosystem_service"]["subfields"]["term"]["values"])
+
+    hab = list(dict.fromkeys(v for v in (parsed.get("habitat") or []) if v in hab_set))
+    lvl = list(dict.fromkeys(v for v in (parsed.get("biodiversity_level") or []) if v in lvl_set))
+
+    eco = []
+    seen_eco = set()
+    for e in parsed.get("ecosystem_type") or []:
+        if not isinstance(e, dict):
+            continue
+        c = e.get("category") if e.get("category") in ecat_set else None
+        t = e.get("term") if e.get("term") in eterm_set else None
+        if (c or t) and (c, t) not in seen_eco:
+            seen_eco.add((c, t))
+            eco.append({"category": c, "term": t})
+
+    srv = []
+    seen_srv = set()
+    for e in parsed.get("ecosystem_service") or []:
+        if not isinstance(e, dict):
+            continue
+        c = e.get("category") if e.get("category") in scat_set else None
+        t = e.get("term") if e.get("term") in sterm_set else None
+        if (c or t) and (c, t) not in seen_srv:
+            seen_srv.add((c, t))
+            srv.append({"category": c, "term": t})
+
+    taxa = []
+    seen_t = set()
+    for t in parsed.get("taxa") or []:
+        if not isinstance(t, dict):
+            continue
+        sg = t.get("species_group")
+        if sg not in grp_set:
+            continue
+        sci = str(t.get("scientific_name")).strip() if t.get("scientific_name") else None
+        if sci and sci != "-":
+            sci = micronormalize_taxon_name(sci)
+        ger = str(t.get("german_name")).strip() if t.get("german_name") else None
+        k = (sg, sci, ger, bool(t.get("collective_term", False)))
+        if k not in seen_t:
+            seen_t.add(k)
+            taxa.append({"species_group": sg, "scientific_name": sci, "german_name": ger, "collective_term": k[3]})
+
+    return {
+        "habitat": hab,
+        "ecosystem_type": eco,
+        "biodiversity_level": lvl,
+        "taxa": taxa,
+        "ecosystem_service": srv,
+    }
+
+
 def _split_sections_by_chars(
     sections: list[dict[str, Any]],
     max_chars: int = 80000,
@@ -756,6 +854,7 @@ def main() -> None:
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
     parser.add_argument("--bilingual-knn", action="store_true", help="Use bilingual char_wb 3-5 TF-IDF retrieval without stripping taxa")
+    parser.add_argument("--raw-fulltext", action="store_true", help="Unfiltered full AutoParser text in 1 call + strict exact-enum normalization")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--rpm", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
@@ -838,6 +937,7 @@ def main() -> None:
         "_lvl" if args.level_prompt else "",
         "_v4" if args.v4_prompt else "",
         "_biknn" if args.bilingual_knn else "",
+        "_rawft" if args.raw_fulltext else "",
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -863,7 +963,11 @@ def main() -> None:
             continue
 
         rec = gold[zot_id]
-        if args.auto_parser:
+        if args.raw_fulltext:
+            sections = extract_raw_auto_text(
+                zot_id, rec, pdf_dir, args.grobid_url or "http://127.0.0.1:8070"
+            )
+        elif args.auto_parser:
             sections = extract_auto_routed_sections(
                 zot_id, rec, pdf_dir, args.grobid_url or "http://127.0.0.1:8070"
             )
@@ -882,13 +986,13 @@ def main() -> None:
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
 
-        sec_parts = _split_sections_by_chars(sections, max_chars=80000) if args.full_text else [sections]
+        sec_parts = _split_sections_by_chars(sections, max_chars=80000) if (args.full_text and not args.raw_fulltext) else [sections]
         part_norms: list[dict[str, Any]] = []
         for part_secs in sec_parts:
             part_text = " ".join(s["text"] for s in part_secs)
             if args.v4_prompt:
                 user_prompt = build_v4_user_prompt(
-                    rec, part_secs, few_shots, field_spec, eco_category_map_str, full_text=args.full_text
+                    rec, part_secs, few_shots, field_spec, eco_category_map_str, full_text=(args.full_text or args.raw_fulltext)
                 )
             else:
                 user_prompt = build_rag_user_prompt(
@@ -898,7 +1002,7 @@ def main() -> None:
                     field_spec,
                     role_budget=args.role_budget,
                     evidence_gates=args.evidence_gates,
-                    full_text=args.full_text,
+                    full_text=(args.full_text or args.raw_fulltext),
                     focus_prompt=args.focus_prompt,
                     train_rates_note=train_rates_note,
                     self_check_reasoning=args.self_check_reasoning,
@@ -911,9 +1015,12 @@ def main() -> None:
                 parsed = parse_and_verify_flat_labels(
                     parsed, part_text, verify_quotes=not isinstance(client, DryRunMockClient)
                 )
-            part_norm = normalize_prediction(parsed, field_spec)
-            if args.clean_taxa:
-                apply_clean_taxa(parsed, part_norm)
+            if args.raw_fulltext:
+                part_norm = strict_normalize_prediction(parsed, field_spec)
+            else:
+                part_norm = normalize_prediction(parsed, field_spec)
+                if args.clean_taxa:
+                    apply_clean_taxa(parsed, part_norm)
             if args.evidence_gates and not args.per_label_quotes and not isinstance(client, DryRunMockClient):
                 apply_evidence_gates(parsed, part_norm, part_text)
             if args.level_prompt and not isinstance(client, DryRunMockClient):
