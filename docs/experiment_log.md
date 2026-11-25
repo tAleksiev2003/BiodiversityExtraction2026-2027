@@ -167,6 +167,23 @@ Fixed-vote consensus across the 4 completed GROBID + Marker runs (`saia_grobid`,
 
 **Key Architectural Insight (2026-11-24):** Injecting individual pieces of Minh Anh's `v4` pipeline into Architecture 3's prompt consistently underperforms (`0.54–0.58` C1 vs. `0.6056`). Rather than running a heavy multi-model consensus ensemble, the clean efficient synthesis is: **our `--auto-parser` (GROBID + Marker fallback) + `--clean-taxa` preprocessing/postprocessing paired with Minh Anh's complete `v4` prompt + 3–60w quote check in 1 call/paper**.
 
+### 3e. Cohesive `--v4-prompt` Matrix on SAIA & HU (`bio_v4_*`, 2026-11-24 – 2026-11-25)
+
+| Variant | Provider / Model | C1 Macro-F1 | C1+C2b | Micro-F1 | Finding |
+|---|---|---:|---:|---:|---|
+| `AutoParser + --ctaxa --v4` (16k) | `saia` / `deepseek-4.1` | 0.5953 | **0.4744** | **0.5019** | **All-time best C1+C2b & first >0.50 Micro** (`c2b_macro_f1 = 0.3942`, beats Minh Anh's clean `v4` `0.3733`) |
+| `AutoParser + --ctaxa --v4 --full-text` | `saia` / `deepseek-4.1` | **0.6026** | 0.4625 | 0.4874 | `+0.0073` C1 vs. 16k; beats `Docling + v4` by **`+0.0261` C1 / `+0.0347` Micro** |
+| `AutoParser + --ctaxa --v4 --bilingual-knn` | `saia` / `deepseek-4.1` | 0.6010 | 0.4646 | 0.4920 | `+0.0057` C1 vs. English TF-IDF |
+| `AutoParser + --ctaxa --v4 --full --biknn` | `saia` / `deepseek-4.1` | 0.6016 | 0.4634 | 0.4706 | stable `0.60+` C1 |
+| `Docling + --ctaxa --v4 --full-text` | `saia` / `deepseek-4.1` | 0.5765 | 0.4421 | 0.4527 | **Proof:** `AutoParser` beats `Docling` by **`+2.61` C1** under identical `v4` prompt |
+| `AutoParser + --ctaxa --v4` (16k) | `hu` / `hu-reasoning` | 0.5571 | 0.4176 | 0.4279 | baseline |
+| `AutoParser + --ctaxa --v4 --full-text` | `hu` / `hu-reasoning` | 0.5773 | 0.4128 | 0.4182 | `+0.0202` C1 vs. 16k; beats `Docling + v4` by **`+0.0224` C1 / `+0.0549` Micro** |
+| `AutoParser + --ctaxa --v4 --bilingual-knn` | `hu` / `hu-reasoning` | 0.5671 | **0.4214** | **0.4292** | `+0.0100` C1 vs. English TF-IDF |
+| `AutoParser + --ctaxa --v4 --full --biknn` | `hu` / `hu-reasoning` | **0.5815** | 0.4188 | 0.4197 | best `v4` C1 on HU (`+0.0244` over 16k `v4`) |
+| `Docling + --ctaxa --v4 --full-text` | `hu` / `hu-reasoning` | 0.5549 | 0.3816 | 0.3633 | **Proof:** `AutoParser` beats `Docling` by **`+2.24` C1** on HU too |
+
+Full 44-run per-field table: `docs/experiment_matrix.md`.
+
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
 Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
