@@ -47,10 +47,10 @@ All four parsers feed into the exact same downstream prompt (`max_total_chars = 
 | **PyMuPDF** | `hu-reasoning` (Qwen 3.6-27B) | `0.5539` | `0.4073` | `0.4126` | 100/100 parsed |
 | **GROBID** | `deepseek-v4.1-flash-1017` | **`0.5957`** | **`0.4544`** | **`0.4390`** | +0.0159 C1 vs PyMuPDF (wins 25, loses 18) |
 | **GROBID** | `hu-reasoning` (Qwen 3.6-27B) | **`0.5706`** | **`0.4353`** | **`0.4293`** | +0.0167 C1 vs PyMuPDF |
-| **Marker** | `deepseek-v4.1-flash-1017` | *pending* | *pending* | *pending* | Converting on `lenserver-hp` |
-| **Marker** | `hu-reasoning` (Qwen 3.6-27B) | *pending* | *pending* | *pending* | Queued after DeepSeek |
-| **Docling** | `deepseek-v4.1-flash-1017` | *pending* | *pending* | *pending* | Converting on `lenserver-hp` |
-| **Docling** | `hu-reasoning` (Qwen 3.6-27B) | *pending* | *pending* | *pending* | Queued after DeepSeek |
+| **Marker** | `deepseek-v4.1-flash-1017` | `0.5985` | `0.4362` | `0.3784` | 100/100 converted |
+| **Marker** | `hu-reasoning` (Qwen 3.6-27B) | `0.5837` | `0.4197` | `0.4015` | 100/100 converted |
+| **Docling** | `deepseek-v4.1-flash-1017` | `0.5634` | `0.4221` | `0.4131` | 100/100 converted |
+| **Docling** | `hu-reasoning` (Qwen 3.6-27B) | `0.5613` | `0.4018` | `0.3748` | 100/100 converted |
 
 ---
 

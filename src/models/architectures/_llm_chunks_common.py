@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 ========================================================================================
-EXECUTIVE SUMMARY — Shared Building Blocks for Chunked LLM Pipelines
+EXECUTIVE SUMMARY — Shared Building Blocks for Architecture 2 Chunk Variants
 ========================================================================================
 1. Concept & Goal (shared stages of the team's agreed chunk pipeline, Google-Doc diagram):
    PDF -> text -> section chunks C1..Cn, then quote verification -> EN->DE mapping
-   -> predictions.jsonl. Serves two architectures: sequential state fold
-   (llm_sequential_chunks.py) and parallel vote merge (llm_parallel_chunks.py).
+   -> predictions.jsonl. Serves Architecture 2 in two variants: A = sequential state fold
+   (llm_sequential_chunks.py), B = parallel vote merge (llm_parallel_chunks.py).
 2. How It Works (this module): provider registry (HU bridge, SAIA, Gemini),
    heading-heuristic section chunking over cached pypdf full text, compact
    English-label chunk prompts, fuzzy quote verification, deterministic EN->DE
@@ -14,7 +14,7 @@ EXECUTIVE SUMMARY — Shared Building Blocks for Chunked LLM Pipelines
 3. Results on Dev Set: no runs of its own (shared helper, not a model);
    see llm_sequential_chunks.py and llm_parallel_chunks.py for measured scores.
 ========================================================================================
-Implements the shared stages of the team's agreed chunk pipeline (Google-Doc diagram):
+Implements the shared stages of the team's agreed Architecture 2 chunk pipeline (Google-Doc diagram):
 
     PDF -> text -> section chunks C1..Cn
       A) Sequential: LLM fold over chunks (state passed on)   -> llm_sequential_chunks.py

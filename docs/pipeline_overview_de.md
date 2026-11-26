@@ -119,7 +119,7 @@ flowchart TD
 3. **Architektur 2 / Pipeline B (Optimierungshebel):**
    - *Baseline v1 (`0.4318`):* `ecosystem_type.term` kollabierte auf `0.000` (strikte Normalisierung verwarf freie Zitate).
    - *v2 `--field-guidelines` (`0.4565`):* Präzise Feldregeln halbierten False Positives.
-   - *E1 `--term-enum` (`0.5593` mit HU / **`0.5622` mit DeepSeek-v4.1-Flash**):* Mitgabe der 46/67 erlaubten Term-Enums + Relaxed Matching brachte **+10.3 F1-Punkte** und bei DeepSeek den C1+C2b-Sprung auf `0.4244`.
+   - *E1 `--term-enum` (`0.5593` mit Qwen3.6-27B / **`0.5622` mit DeepSeek-v4.1-Flash**):* Mitgabe der 46/67 erlaubten Term-Enums + Relaxed Matching brachte **+10.3 F1-Punkte** und bei DeepSeek den C1+C2b-Sprung auf `0.4244`.
    - *E2 `--clean-text` (`0.4463`):* URLs/Referenzen stumpf abzuschneiden half allein nicht.
 4. **Sprach- & Architektur-Vergleich (`llm_sections_pipeline.py`):**
    - **Englisch + deterministisches Mapping (`0.4476`) vs. Direkt Deutsch (`0.2498`):** **+19.8 F1-Punkte Vorsprung** für Englisch, da >85 % der Paper englisch sind und deutsche Zitat-Belege scheitern.

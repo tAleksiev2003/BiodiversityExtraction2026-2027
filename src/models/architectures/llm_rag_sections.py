@@ -379,6 +379,72 @@ def extract_docling_sections(
     )
 
 
+def extract_minh_json_sections(
+    zot_id: str,
+    rec: dict[str, Any],
+    pdf_dir: Path,
+) -> list[dict[str, Any]]:
+    """Builds sections from Minh's full Docling JSON (`data/processed/docling/dev/`).
+
+    Walks the document body in reading order, starts a new section on every
+    `section_header`, and prefixes text with `[page N]` markers when the page
+    changes (same markers Minh's own pipeline uses for quote tracing).
+    Footers are skipped; over-long section lists are grouped into <= 4 blocks.
+    Falls back to the AutoParser router when the JSON is missing or unreadable.
+    """
+    try:
+        doc = json.loads(
+            (REPO_ROOT / "data" / "processed" / "docling" / "dev" / f"{zot_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        texts = {t.get("self_ref"): t for t in doc.get("texts", []) if isinstance(t, dict)}
+        raw_sections: list[tuple[str, list[str]]] = []
+        cur_head, cur_lines, cur_page = "Front matter", [], None
+        for child in doc.get("body", {}).get("children", []):
+            ref = child.get("$ref") if isinstance(child, dict) else None
+            item = texts.get(ref) if ref else None
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label")
+            if label == "page_footer":
+                continue
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            if label == "section_header":
+                body = " ".join(cur_lines).strip()
+                if len(body) > 100:
+                    raw_sections.append((cur_head, [body]))
+                cur_head = text[:80]
+                cur_lines = []
+                continue
+            prov = item.get("prov") or []
+            page = prov[0].get("page_no") if prov and isinstance(prov[0], dict) else None
+            if page != cur_page and page is not None:
+                cur_lines.append(f"[page {page}]")
+                cur_page = page
+            cur_lines.append(text)
+        tail = " ".join(cur_lines).strip()
+        if len(tail) > 100:
+            raw_sections.append((cur_head, [tail]))
+        if len(raw_sections) <= 4:
+            return [{"section_name": h[:60], "text": t[0]} for h, t in raw_sections]
+        step = max(1, (len(raw_sections) + 3) // 4)
+        grouped: list[dict[str, Any]] = []
+        for i in range(0, len(raw_sections), step):
+            chunk = raw_sections[i : i + step]
+            names = " / ".join(h[:25] for h, _ in chunk)
+            text = "\n\n".join(f"## {h}\n{t[0]}" for h, t in chunk)
+            grouped.append({"section_name": names[:60], "text": text})
+        return grouped[:4]
+    except Exception as exc:
+        print(f"[minh-json fallback for {zot_id}: {exc}]", flush=True)
+        return extract_auto_routed_sections(
+            zot_id, rec, pdf_dir, "http://127.0.0.1:8070"
+        )
+
+
 def extract_marker_sections(
     zot_id: str,
     rec: dict[str, Any],
@@ -840,6 +906,7 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=2, help="Number of kNN training anchors")
     parser.add_argument("--grobid-url", default=None)
     parser.add_argument("--docling", action="store_true", help="Use IBM Docling Markdown parser")
+    parser.add_argument("--minh-json", action="store_true", help="Use Minh's full Docling JSON cache (OCR + page markers)")
     parser.add_argument("--marker", action="store_true", help="Use Marker PDF Markdown cache")
     parser.add_argument("--auto-parser", action="store_true", help="Route between GROBID and Marker using objective TEI/text signals")
     parser.add_argument("--full-text", action="store_true", help="Do not truncate sections; split only if >80k chars")
@@ -919,6 +986,8 @@ def main() -> None:
         parser_suffix, parser_label = "_marker", " + Marker"
     elif args.docling:
         parser_suffix, parser_label = "_docling", " + Docling"
+    elif args.minh_json:
+        parser_suffix, parser_label = "_minhjson", " + MinhDoclingJSON"
     elif args.grobid_url:
         parser_suffix, parser_label = "_grobid", " + GROBID"
     else:
@@ -975,6 +1044,8 @@ def main() -> None:
             sections = extract_marker_sections(zot_id, rec, pdf_dir)
         elif args.docling:
             sections = extract_docling_sections(zot_id, rec, pdf_dir)
+        elif args.minh_json:
+            sections = extract_minh_json_sections(zot_id, rec, pdf_dir)
         elif args.grobid_url:
             sections = extract_grobid_chunks(zot_id, rec, pdf_dir, args.grobid_url)
         else:

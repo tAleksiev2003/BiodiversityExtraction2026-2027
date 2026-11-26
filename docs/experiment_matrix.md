@@ -78,11 +78,4 @@ und direktem Verweis auf das jeweilige Run-Verzeichnis (`outputs/architectures/<
 | **6-Run Konsens (3-of-6)** | 0.6039 | 0.4515 | **0.4590** | `saia_grobid_ev`, `saia_marker_ev`, `saia_plq`, `saia_s5`, `hu_grobid`, `hu_marker` |
 | **4-Run Konsens (3-of-4, +TaxonNorm)** | 0.5932 | **0.4687** | 0.4496 | `saia_grobid`, `saia_marker`, `hu_grobid`, `hu_marker` |
 
-## 4. Aktuell laufende / eingereihte `v4`-Läufe (SAIA & HU)
-
-- `*_autoparser_ctaxa_v4` *(läuft)*
-- `*_autoparser_full_ctaxa_v4` *(eingereiht)*
-- `*_autoparser_ctaxa_v4_biknn` *(eingereiht)*
-- `*_docling_full_ctaxa_v4` *(eingereiht)*
-
-*(Nach Abschluss einfach `python3 scripts/generate_experiment_matrix.py` auf `lenlenovo` ausführen, um diese Tabelle automatisch zu aktualisieren.)*
+*(Regenerate after new runs on the home benchmark server: `python3 scripts/generate_experiment_matrix.py`.)*

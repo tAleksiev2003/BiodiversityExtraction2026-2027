@@ -2,6 +2,11 @@
 
 Audit across all **100 validated Dev papers** (`dev_100_ids.txt`): **33 flagged** (listed first) and **67 clean** (listed below).
 
+**Legend — `Counts` column:** number of gold entries per paper and field, format `H:L:E:T:S` =
+`H`abitat, biodiversity `L`evel, `E`cosystem_type (entries), `T`axa (entries), ecosystem `S`ervice (entries).
+Example `H:1 L:2 E:1 T:10 S:0` = 1 habitat, 2 levels, 1 ecosystem type, 10 taxa, no services.
+These are gold sizes, not scores — they show where a paper claims much (or nothing) to find.
+
 ## Key Takeaways: Where the Biggest Problems Are
 
 1. **Missing or inconsistent `taxa.scientific_name` (20 papers — `taxa_missing_sci`):**  
@@ -14,6 +19,10 @@ Audit across all **100 validated Dev papers** (`dev_100_ids.txt`): **33 flagged*
    Floodplain forest studies (`3LGPK6BL`, `6BKNRKUA`) are systematically mapped to `II / Fließende Gewässer` rather than forest; `7AYVH7FI` (*Blue Carbon*) lacks `ecosystem_service` despite studying carbon sequestration; and 2 PDFs (`2P53UVJA` book OCR, `V2BVMBPF` with 0 extracted chars) have `< 500` extractable characters.
 
 ## Issue Breakdown (Evaluable Summary)
+
+Each tag is shorthand for one finding from the Key Takeaways above (1 = `taxa_missing_sci`,
+2 = `taxa_epithet` / `taxa_comma_de`, 3 = `breadth_doc`, 4 = the rest). Tags appear again in
+the per-paper table below.
 
 | Issue Tag | Papers |
 | :--- | :---: |

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ========================================================================================
-EXECUTIVE SUMMARY — Architecture Model 2: Sequential Chunk Pipeline (Approach A)
+EXECUTIVE SUMMARY — Architecture 2, Variant A: Sequential Chunk Pipeline (State Fold)
 ========================================================================================
 - Concept & Goal:
     Second architecture-level model, implementing variant A of the team's agreed
@@ -69,7 +69,7 @@ from src.models.architectures._llm_chunks_common import (
 )
 
 MODEL_ID = "llm_sequential_chunks"
-MODEL_TITLE = "Architecture 2: Sequential Chunk Pipeline (State Fold, HU llm3)"
+MODEL_TITLE = "Architecture 2, Variant A: Sequential Chunk Pipeline (State Fold, HU llm3)"
 CATEGORY = "architectures"
 SEED = 42
 MAX_ATTEMPTS = 2

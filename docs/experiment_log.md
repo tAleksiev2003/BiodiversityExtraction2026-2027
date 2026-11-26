@@ -1,5 +1,8 @@
 # Experiment Log — Architecture Axis & Prompt Optimization
 
+Lab notebook with grouped experiment tables (variant × delta vs. baseline). Story: `README.md`.
+Single-run numbers: `docs/experiment_matrix.md`.
+
 Central, committed record of every model/prompt change and its measured result
 (course requirement: document how predictions perform). Companion artifacts:
 `outputs/<category>/<model_id>/` per run (run_info.json logs the full config incl.
@@ -198,9 +201,14 @@ Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docli
   - SAIA: `0.5938 / 0.4390 / 0.4149` (slightly below GROBID `0.5957 / 0.4544 / 0.4390` due to Marker's higher FP count on sparse fields hurting corpus-level Macro/Micro-F1).
 - **4-Parser Consensus (SAIA only, 3-of-4):** `C1 = 0.5851 | C1+C2b = 0.4611 | Micro = 0.4615`.
 
-### 5. Upcoming Planned OFAT Phases (see `notes/next_steps_preprocessing.md`)
+### 5. Roadmap status (2026-11-25, see `notes/next_steps_preprocessing.md`)
 
-1. **Phase 1 — Adaptive Parser Router (`--auto-parser`):** 4-way parser diff analysis after Docling completes $\rightarrow$ objective PDF/TEI routing heuristic $\rightarrow$ Dev-100 A/B test.
-2. **Phase 2 — Long-Paper Map-Reduce Summarization:** Chunked independent evidence extraction (Map) + RAG consolidation (Reduce) for papers exceeding budget.
-3. **Phase 3 — Stepwise Integration of `minhanh_testing` (`Pipeline F`):** Isolate & A/B test `prompt v2` and `checker 60 words` individually against our baseline.
-4. **Phase 4 — Final Cross-Parser / Cross-Model Consensus Ensemble & Full-Set Run.**
+1. **Phase 1 — Adaptive Parser Router (`--auto-parser`): done** (offline 2-rule router + live `--auto-parser` flag, Dev-100 tested).
+2. **Phase 2 — Long-Paper Map-Reduce Summarization:** open (chunked evidence extraction + RAG consolidation for over-budget papers).
+3. **Phase 3 — Stepwise Integration of `minhanh_testing` (`Pipeline F`): done** (single blocks rejected, cohesive v4 adopted; Minh repro running).
+4. **Phase 4 — Final Cross-Parser / Cross-Model Consensus Ensemble & Full-Set Run:** open (after Grünau caches + redos).
+5. **Future hypotheses (2026-11-25):** fair Docling-JSON rerun in our pipeline (reader missing);
+   level decision folded into one prompt instead of a second call; cheap PyMuPDF pre-filter router
+   over all five parsers (PyMuPDF/GROBID/Marker/Docling Light/full Docling — agreement vs. oracle
+   after the fair rerun); translated German taxa names accepted
+   with English source quotes as evidence (ger_name 0.25, 45 papers never right).

@@ -119,7 +119,7 @@ flowchart TD
 3. **Architecture 2 / Pipeline B (Optimization Levers):**
    - *Baseline v1 (`0.4318`):* `ecosystem_type.term` collapsed to `0.000` (strict normalization dropped free-text quotes).
    - *v2 `--field-guidelines` (`0.4565`):* Thorough field rules halved False Positives.
-   - *E1 `--term-enum` (`0.5593` with HU / **`0.5622` with DeepSeek-v4.1-Flash**):* Providing the 46/67 allowed term enums + relaxed matching added **+10.3 F1 points**, and pushed DeepSeek C1+C2b to `0.4244`.
+   - *E1 `--term-enum` (`0.5593` with Qwen3.6-27B / **`0.5622` with DeepSeek-v4.1-Flash**):* Providing the 46/67 allowed term enums + relaxed matching added **+10.3 F1 points**, and pushed DeepSeek C1+C2b to `0.4244`.
    - *E2 `--clean-text` (`0.4463`):* Stripping URLs/references alone did not help.
 4. **Language & Architecture Comparison (`llm_sections_pipeline.py`):**
    - **English + deterministic mapping (`0.4476`) vs. Direct German (`0.2498`):** **+19.8 F1 points advantage** for English, because >85% of papers are written in English and German verbatim quote matching fails.

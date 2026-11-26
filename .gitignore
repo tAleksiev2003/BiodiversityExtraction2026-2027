@@ -2,11 +2,13 @@
 AUFGABENLISTE.md
 TODO.md
 notes/
+docs/status_quo_2026-11-25.md
 
 # Course datasets & copyright-protected PDFs (never commit!)
 data/gold/*
 data/raw_pdfs/*
 data/parsed_text/*
+data/processed/*
 !data/**/.gitkeep
 *.pdf
 

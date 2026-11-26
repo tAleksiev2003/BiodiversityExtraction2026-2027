@@ -1,5 +1,9 @@
 # Biodiversity Extraction Benchmark — Dev-100 Leaderboard
 
+> Historical snapshot (27 runs, best C1 0.5798) — superseded by
+> [experiment_matrix.md](experiment_matrix.md) (44 runs, best logged C1 0.6040).
+> Kept because the Sections-Pipeline rows below exist in no other committed file.
+
 All models evaluated identically on the 100 validated Dev papers (`data/gold/dev_100_ids.txt`) using the official set-based exact-match evaluator (`src/evaluation/evaluator.py`).
 
 | Rank | Approach | Type | C1 | C1+C2b (Macro) | Micro-F1 |

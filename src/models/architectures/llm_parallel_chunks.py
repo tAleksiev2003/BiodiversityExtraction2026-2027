@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ========================================================================================
-EXECUTIVE SUMMARY — Architecture Model 3: Parallel Chunk Pipeline (Approach B)
+EXECUTIVE SUMMARY — Architecture 2, Variant B: Parallel Chunk Pipeline (Vote Merge, 2nd gen)
 ========================================================================================
 - Concept & Goal:
     Third architecture-level model, implementing variant B of the team's agreed
@@ -69,7 +69,7 @@ from src.models.architectures._llm_chunks_common import (
 )
 
 MODEL_ID = "llm_parallel_chunks"
-MODEL_TITLE = "Architecture 3: Parallel Chunk Pipeline (Vote Merge, HU llm3)"
+MODEL_TITLE = "Architecture 2, Variant B: Parallel Chunk Pipeline (Vote Merge, HU llm3), 2nd gen"
 CATEGORY = "architectures"
 SEED = 42
 MAX_ATTEMPTS = 2
