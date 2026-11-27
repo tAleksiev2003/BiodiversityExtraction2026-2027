@@ -787,8 +787,11 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   (routed C1 0.6141 vs router 0.5888 on DeepSeek, Δ +2.5, bootstrap CI [+0.9, +4.2], excludes 0;
   CV mean 0.6176 vs 0.5862; Qwen +1.6, CI includes 0) and **scans/no text layer → Marker**
   (small but consistent). Cost stays low: the long-paper route only needs GPU OCR for ~15–25
-  papers. Next step: implement as stage 1 of `--auto-parser` (PyMuPDF signal → full Docling JSON
-  for long papers; scan → Marker; then the current GROBID/Marker rules).
+  papers. **Train check running:** the dev set is long-paper-heavy (41 % vs. 19 % on train), so
+  the rules are now verified on the 908 training papers — signal audit done (see
+  `experiment_log.md` §4c), 46-paper downstream check queued (`bio_trainverif`, GROBID vs.
+  Docling vs. cheap route on train labels, self-excluded few-shots). After it holds, the rules
+  move into stage 1 of `--auto-parser` and get a live Dev-100 OFAT.
 - **Translated names with English evidence.** Over 85% of papers are English, so German taxa names
   must be translated, not extracted — but the quote gate demands verbatim German quotes.
   Hypothesis: accept the English source span as evidence for translated names (ger_name hit rate

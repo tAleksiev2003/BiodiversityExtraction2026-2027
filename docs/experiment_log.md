@@ -244,6 +244,23 @@ Only the v4 Micro gain on DeepSeek 4.1 has a CI that excludes zero. Within our o
 
 **Housekeeping (27 Nov):** `.gitignore` now ignores all of `outputs/*` (previously only `base_models/` and `architectures/` were covered — run-log directories such as `outputs/catchup_queue/` were untracked-but-unprotected on the server clone).
 
+### 4c. Router verification on the 908 train papers (started 2026-11-27)
+
+The router rules were derived on Dev-100; the train split (labels never used for the rules) is the overfitting-free check. Two layers:
+
+**Signal audit (done, 0 API calls).** Cheap PyMuPDF signals on all 908 train PDFs vs. the 100 dev papers (`~/router_train_signals.json` on lenlenovo):
+
+| Route | Train (908) | Dev (100) |
+|---|---|---|
+| Scan / no text layer → Marker | **36 (4 %)** | 1 (1 %) |
+| Pages ≥ 25 → Full Docling | **173 (19 %)** | 41 (41 %) |
+| Pages ≥ 40 | 111 (12 %) | 31 (31 %) |
+| Chars < 15 000 | 64 (7 %) | 6 (6 %) |
+
+**Dev is not representative:** dev contains twice the share of long papers (41 % vs. 19 %), so router gains measured on dev shrink to roughly half on the full corpus in expectation; the scan rule becomes more relevant (4 % vs. 1 %). GROBID-shape signals (g_divs/g_ratio) for all 908 are being computed in a batch (`bio_grobid_train`, `data/parsed_text/grobid_train/`).
+
+**Downstream check (queued, `bio_trainverif`, waits for validate3).** New flags in `llm_rag_sections.py` (commit `cc374e7`): `--split train`, `--ids-file`, `--knn-exclude-self` (mandatory on train — the paper itself must never appear as its own few-shot neighbour), run_id suffix `_tr`, split logged in run config. Stratified sample `scripts/train_router_sample_ids.txt` (seed 42): 20 long (≥ 25 pages), 10 medium (10–24), 10 short/clean, 6 scan → 46 papers. Three parser routes with identical baseline prompt flags, compared per-paper on train labels: GROBID vs. Docling Light (converts on the fly) vs. Marker (**note:** no Marker cache on lenlenovo → this arm currently falls back to PyMuPDF text; a real Marker arm needs the HP Marker conversions or a train Marker batch). Success criterion: the long-paper route must reproduce its dev per-paper advantage on the 20 long train papers; the scan papers must beat GROBID. **Results pending.**
+
 **Minh repro (0 extra requests, scored 27 Nov).** Her pipeline F (`minhanh_testing@ac98eac`) ran on `lenlenovo` in `~/Home/minhanh_repro/` with our PDFs, gold files and schemas (25 Nov, 217 fresh SAIA requests; 98 papers in one call, 2 in parts; verbatim checker 3–60 words; level prompt; eco-type rule dropped 10 entries; service rule dropped 13 entries in 12 papers). Her dev selection is exactly our `dev_100_ids`. Scored with our evaluator on the identical 100 papers: **C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032** (her own scorer gives the same C1; her "c2b" 0.4534 is a different definition). Against our best single run (`autoparser_ctaxa_v4_rawft`): C1 **+0.0403 [+0.0012, +0.0796]**, C1+C2b **+0.0562 [+0.0113, +0.1045]**, Micro +0.0027 [−0.0331, +0.0355].
 
 | Field F1 | Minh's pipeline F | Our best (`autoparser_ctaxa_v4_rawft`) |
