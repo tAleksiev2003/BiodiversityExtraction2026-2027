@@ -372,12 +372,13 @@ def extract_docling_sections(
     rec: dict[str, Any],
     pdf_dir: Path,
 ) -> list[dict[str, Any]]:
-    """Uses cached Docling Markdown (`docling_dev/`) or runs Docling on the fly."""
+    """Uses cached Docling Markdown (`docling_dev/` or `docling_train/`) or runs Docling on the fly."""
+    cache_subdir = "docling_train" if pdf_dir.name == "train" else "docling_dev"
     return extract_markdown_cached_sections(
         zot_id,
         rec,
         pdf_dir,
-        "docling_dev",
+        cache_subdir,
         lambda p: _get_docling_converter().convert(str(p)).document.export_to_markdown(),
     )
 
@@ -453,8 +454,9 @@ def extract_marker_sections(
     rec: dict[str, Any],
     pdf_dir: Path,
 ) -> list[dict[str, Any]]:
-    """Uses cached Marker Markdown (`marker_dev/`), falling back to PyMuPDF if missing."""
-    return extract_markdown_cached_sections(zot_id, rec, pdf_dir, "marker_dev", None)
+    """Uses cached Marker Markdown (`marker_dev/` or `marker_train/`), falling back to PyMuPDF if missing."""
+    cache_subdir = "marker_train" if pdf_dir.name == "train" else "marker_dev"
+    return extract_markdown_cached_sections(zot_id, rec, pdf_dir, cache_subdir, None)
 
 
 def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
