@@ -107,9 +107,12 @@ class TrainKNNRetriever:
             self.vectorizer = TfidfVectorizer(max_features=15000, stop_words="english", sublinear_tf=True)
         self.train_matrix = self.vectorizer.fit_transform(docs)
 
-    def retrieve_top_k(self, query_text: str, k: int = 2) -> list[dict[str, Any]]:
+    def retrieve_top_k(self, query_text: str, k: int = 2, exclude_id: str | None = None) -> list[dict[str, Any]]:
         q_vec = self.vectorizer.transform([query_text])
         sims = cosine_similarity(q_vec, self.train_matrix).ravel()
+        if exclude_id and exclude_id in self.train_ids:
+            # Required when scoring train-split papers: never retrieve the paper itself.
+            sims[self.train_ids.index(exclude_id)] = -1e9
         top_idx = np.argsort(-sims)[:k]
         examples = []
         for idx in top_idx:
@@ -957,6 +960,9 @@ def main() -> None:
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--level-fold", action="store_true", help="Fold biodiversity_level decision rules into the main prompt (no second call)")
     parser.add_argument("--service-gate", action="store_true", help="Drop ecosystem_service labels when none of the retrieved training neighbours has any")
+    parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
+    parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
+    parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
     parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
     parser.add_argument("--bilingual-knn", action="store_true", help="Use bilingual char_wb 3-5 TF-IDF retrieval without stripping taxa")
     parser.add_argument("--raw-fulltext", action="store_true", help="Unfiltered full AutoParser text in 1 call + strict exact-enum normalization")
@@ -968,16 +974,23 @@ def main() -> None:
     args = parser.parse_args()
 
     t0 = time.time()
-    gold = load_jsonl_by_id(REPO_ROOT / "data/gold/dev.jsonl")
-    train_records = load_jsonl_by_id(REPO_ROOT / "data/gold/train.jsonl")
-    dev_ids = [l.strip() for l in (REPO_ROOT / "data/gold/dev_100_ids.txt").read_text().splitlines() if l.strip()]
+    if args.split == "train":
+        gold = load_jsonl_by_id(REPO_ROOT / "data/gold/train.jsonl")
+        if args.ids_file:
+            dev_ids = [l.strip() for l in Path(args.ids_file).read_text().splitlines() if l.strip()]
+        else:
+            dev_ids = sorted(gold.keys())
+    else:
+        gold = load_jsonl_by_id(REPO_ROOT / "data/gold/dev.jsonl")
+        dev_ids = [l.strip() for l in (REPO_ROOT / "data/gold/dev_100_ids.txt").read_text().splitlines() if l.strip()]
     if args.limit:
         dev_ids = dev_ids[: args.limit]
 
-    pdf_dir = REPO_ROOT / "data/raw_pdfs/dev"
+    pdf_dir = REPO_ROOT / ("data/raw_pdfs/train" if args.split == "train" else "data/raw_pdfs/dev")
     train_text_dir = REPO_ROOT / "data/parsed_text/train"
 
     print("Building TF-IDF kNN index over 908 training papers...")
+    train_records = load_jsonl_by_id(REPO_ROOT / "data/gold/train.jsonl")
     retriever = TrainKNNRetriever(
         train_records, train_text_dir, detox_rag=args.detox_rag, bilingual_knn=args.bilingual_knn
     )
@@ -1047,6 +1060,7 @@ def main() -> None:
         "_rawft" if args.raw_fulltext else "",
         "_lvlf" if args.level_fold else "",
         "_svcg" if args.service_gate else "",
+        "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
@@ -1093,7 +1107,9 @@ def main() -> None:
             sections = extract_semantic_sections(zot_id, rec, pdf_dir)
         combined_clean_text = " ".join(s["text"] for s in sections)
         effective_k = 3 if (args.v4_prompt and args.top_k == 2) else args.top_k
-        few_shots = retriever.retrieve_top_k(combined_clean_text, k=effective_k)
+        few_shots = retriever.retrieve_top_k(
+            combined_clean_text, k=effective_k, exclude_id=zot_id if args.knn_exclude_self else None
+        )
 
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
@@ -1199,6 +1215,8 @@ def main() -> None:
                 "model": actual_model,
                 "top_k": args.top_k,
                 "temperature": args.temperature,
+                "split": args.split,
+                "knn_exclude_self": args.knn_exclude_self,
             },
         )
 
