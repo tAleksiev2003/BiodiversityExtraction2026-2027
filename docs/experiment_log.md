@@ -276,6 +276,19 @@ ssh lenlenovo 'tmux new -d -s bio_redo_saia "bash /tmp/run_redo_queue.sh saia"' 
 
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
+### 4b. Cheap Pre-Filter Router — offline validation (0 API calls, 2026-11-27)
+
+Question: can cheap, label-free signals (PyMuPDF text + PDF metadata + GROBID shape, all computable in seconds) reliably pick the best parser per paper? Script: `scripts/prefilter_router_analysis.py`; signals from `/tmp/pdf_signals.json` (pages, chars, chars_per_page, text_layer_ratio, headings, images, umlaut_ratio) plus `g_divs`/`g_ratio` recomputed from the TEI cache. Winner labels come from the available runs per parser — **caveat: flag sets differ across parser runs** (pymupdf/grobid/marker/docling baselines are plain pre-cache, `grobid_ev`/`marker_ev` are ev+ctaxa, `autoparser_v4`/`minhjson_v4` are ctaxa+v4), so winner labels mix parser and prompt effects.
+
+**Findings.**
+1. **Most papers don't need a choice:** 71/100 (DeepSeek) and 72/100 (Qwen) have no strict per-paper winner (per-paper C1 margin ≤ 0.02 across all six parsers).
+2. **Long documents are the real Docling case:** strict Minh-Docling wins sit on long papers (Qwen: mean 95–135 pages vs. 92–96 overall). Routing papers with ≥ 25–40 pages to full Docling JSON gives routed corpus C1 **0.6141 vs. 0.5888** on DeepSeek (Δ +2.5, paired bootstrap 95 % CI **[+0.9, +4.2]** — the first router rule whose CI excludes zero) and +1.6 on Qwen (CI includes 0). CV mean: **0.6176 vs. 0.5862** (DeepSeek), **0.5704 vs. 0.5390** (Qwen).
+3. **Thresholds are CV-stable:** fold-trains pick chars < 15 000, headings ≥ 1, pages ≥ 25 in 4/5 folds on both models — a good sign against threshold overfitting.
+4. **Scan rule confirmed:** no text layer / < 500 chars → Marker (small but consistent gain on both models; the V2BVMBPF case).
+5. **Short-clean → PyMuPDF helps DeepSeek (+1.0, CI [+0.1, +1.6]) but is neutral-to-negative on Qwen (−0.05)** — keep optional, provider-specific.
+
+**Caveats.** Routed absolute values are not leaderboard-comparable (mixed prompt flags across parser runs); the long-doc route uses Minh's JSON cache, which for new papers means GPU OCR conversion of only the ~15–25 long papers. Next step: implement as stage 1 of `--auto-parser` (PyMuPDF signal → full Docling JSON for long papers, scan → Marker, then the current GROBID/Marker rules), then a live OFAT run on Dev-100 to confirm the offline replay.
+
 Analyzed all 4 completed parser baselines (`PyMuPDF`, `GROBID`, `Marker`, `Docling`) across all 100 Dev papers on both `deepseek-v4.1-flash-1017` (SAIA) and `hu-reasoning` (HU):
 - **Oracle Per-Paper Upper Bound:**
   - SAIA: `C1 = 0.6914 | C1+C2b = 0.5053 | Micro = 0.5025` (strict wins: `grobid 16, pymupdf 10, marker 8, docling 4`)

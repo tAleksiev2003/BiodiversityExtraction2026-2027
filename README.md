@@ -779,17 +779,16 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   (The fair Docling rerun that used to be listed here is done — see "Catch-up" above.)
 - **Level decision into one prompt.** She spends a second call per paper on `biodiversity_level`;
   hypothesis: folding the level rules into the main prompt keeps the gain and halves the calls.
-- **Cheap pre-filter router.** Today every paper pays for GROBID and (in the batch) Docling +
-  Marker before the router decides. Hypothesis: PyMuPDF text signals (length, headings, tables)
-  pick the single cheapest sufficient parser up front — biggest savings where Docling costs GPU hours today.
-  Decide between all five: PyMuPDF, GROBID, Marker, Docling Light, full Docling. Likely triggers:
-  no text layer → OCR path (full Docling); table-heavy + text layer → GROBID/Marker; short clean
-  papers → PyMuPDF only. The agreement analysis can start now (fair Docling rerun exists since 26 Nov).
-  First hard rule, proven by V2BVMBPF (1975 scan, 4 pages, 0 characters, 1 image each):
-  PyMuPDF finds no text + the PDF holds page images → GROBID is blind, skip it. Marker reads
-  scans itself via OCR (proven: 27 KB real text from that exact paper), so route scans to Marker
-  first and to full Docling only when tables or maximum quality matter. Cheap to detect
-  (character count + image count per page, <0.1 s), saves the most expensive conversions.
+- **Cheap pre-filter router — validated offline 27 Nov** (`scripts/prefilter_router_analysis.py`,
+  0 API calls): 71–72 of 100 papers have no strict per-paper parser winner (per-paper C1 margin
+  > 0.02), so most papers do not need a choice. For the rest, two cheap signals work and survive
+  5-fold cross-validation with stable thresholds (chars < 15k, headings ≥ 1, pages ≥ 25 chosen in
+  4/5 folds on both models): **papers ≥ ~25–40 pages → full Docling JSON wins big on those**
+  (routed C1 0.6141 vs router 0.5888 on DeepSeek, Δ +2.5, bootstrap CI [+0.9, +4.2], excludes 0;
+  CV mean 0.6176 vs 0.5862; Qwen +1.6, CI includes 0) and **scans/no text layer → Marker**
+  (small but consistent). Cost stays low: the long-paper route only needs GPU OCR for ~15–25
+  papers. Next step: implement as stage 1 of `--auto-parser` (PyMuPDF signal → full Docling JSON
+  for long papers; scan → Marker; then the current GROBID/Marker rules).
 - **Translated names with English evidence.** Over 85% of papers are English, so German taxa names
   must be translated, not extracted — but the quote gate demands verbatim German quotes.
   Hypothesis: accept the English source span as evidence for translated names (ger_name hit rate
