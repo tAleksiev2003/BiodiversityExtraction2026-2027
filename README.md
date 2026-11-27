@@ -533,8 +533,10 @@ once on a second home machine (CPU) and cached as markdown. Baseline is always p
 </details>
 
 Lesson: structure-aware parsing beats raw text on both models; Marker wins brochures and reports
-where GROBID drops text, GROBID wins structured papers — hence the router. Docling Light loses;
-Minh's OCR+JSON variant was never in this comparison (pending Grünau data).
+where GROBID drops text, GROBID wins structured papers — hence the router. Docling Light loses.
+Minh's full Docling (OCR on) was added on 26 Nov under the v4 prompt instead of the baseline prompt,
+so it sits in the v4 table below: 0.7 C1 points behind AutoParser on DeepSeek 4.1 (within noise),
+3.2 points ahead on Qwen3.6-27B.
 
 <details>
 <summary><b>Router analysis (click to expand)</b></summary>
@@ -661,52 +663,119 @@ Baselines at the time: DeepSeek 4.1 at 0.6056, Qwen3.6-27B at 0.5839. Every sing
 
 | v4 variant (AutoParser) | DeepSeek 4.1 C1 / C1+C2b / Micro | Qwen3.6-27B C1 / C1+C2b / Micro |
 |---|---|---|
-| baseline, no v4 (`--ev --ctaxa`, offline router) | 0.6056 / 0.4469 / 0.4424 | 0.5839 / 0.4317 / 0.4237 |
-| `--ctaxa --v4` (16k sections) | 0.5953 / **0.4744** / **0.5019** | 0.5571 / 0.4176 / 0.4279 |
-| `+ --full-text` | **0.6026** / 0.4625 / 0.4874 | 0.5773 / 0.4128 / 0.4182 |
-| `+ --bilingual-knn` | 0.6010 / 0.4646 / 0.4920 | 0.5671 / **0.4214** / **0.4292** |
-| `+ full + bilingual-knn` | 0.6016 / 0.4634 / 0.4706 | **0.5815** / 0.4188 / 0.4197 |
-| Docling Light instead of AutoParser (1:1 proof) | 0.5765 / 0.4421 / 0.4527 | 0.5549 / 0.3816 / 0.3633 |
-| Minh's full Docling rerun (fair 2nd match) | *pending Grünau* | *pending Grünau* |
+| baseline, no v4 (`--ev --ctaxa`, offline router, pre-cache) | 0.6056 / 0.4469 / 0.4424 | 0.5839 / 0.4317 / 0.4237 |
+| `--ctaxa --v4` (16k sections, redone 27 Nov) | 0.5847 / **0.4784** / **0.4994** | **0.5700** / 0.4122 / **0.4279** |
+| `+ --full-text` (redone 27 Nov) | 0.5759 / 0.4497 / 0.4632 | 0.5602 / 0.4053 / 0.4257 |
+| `+ --bilingual-knn` (redone 27 Nov) | **0.6102** / 0.4715 / 0.4901 | 0.5604 / **0.4166** / 0.4264 |
+| `+ full + bilingual-knn` (redone 27 Nov) | 0.5987 / 0.4621 / 0.4733 | 0.5562 / 0.4016 / 0.4059 |
+| Docling Light instead of AutoParser (1:1 proof, pre-cache) | 0.5765 / 0.4421 / 0.4527 | 0.5549 / 0.3816 / 0.3633 |
+| Minh's full Docling (OCR on, page markers) instead of AutoParser — fair rerun, 26 Nov | 0.5883 / 0.4626 / 0.4804 | **0.5894** / 0.4233 / **0.4426** |
 
-The full v4 prompt — train examples, document focus, 3–60-word quote check — gave our all-time
-best C1+C2b and first Micro above 0.50. Under the identical prompt, AutoParser beats our
-Docling Light by 2.2–2.6 C1 points on both models; whether her full Docling variant (OCR + page
-markers) closes that gap is the pending fair rerun.
+**Redo variance warning (27 Nov).** Rerunning the identical v4 configs on the complete caches moved
+C1 by −2.7 to +0.9 points on DeepSeek 4.1 and −2.5 to +1.3 on Qwen3.6-27B. Single-run differences
+below ~2 C1 points are noise for us — including several small OFAT deltas logged earlier. The best
+confirmed run is now `--v4 --bilingual-knn` (16k) at 0.6102 / 0.4715 / 0.4901; `--full-text` lost its
+old +0.7 C1 edge (variance). The Docling rows above are still pre-cache — rerun the Docling side
+before quoting the exact gap again. Full deltas: section 3f in
+[docs/experiment_log.md](docs/experiment_log.md).
+
+The full v4 prompt — train examples, document focus, 3–60-word quote check — gives the best
+C1+C2b and Micro of every non-rawft run (and the first Micro above 0.50 came from it, before the
+redo moved that run). Parser side, both sides on fresh runs: our AutoParser (16k) vs Minh's full
+Docling JSON is now a near-tie on DeepSeek 4.1 (C1 0.5847 vs 0.5883, AutoParser ahead on C1+C2b
+and Micro), and full Docling wins all three metrics on Qwen3.6-27B (C1 +1.9). The old claim
+"AutoParser beats Docling by 2.2–2.6 C1" compared two pre-cache runs and does not survive the
+redo variance (see warning above) — the Docling Light rows need their own redo before any exact
+gap is quoted again.
 
 </details>
 
-#### Latest: `--raw-fulltext` (within Phase 3)
+#### `--raw-fulltext` (within Phase 3, 25 Nov)
 
-Unfiltered full text, 1 call: DeepSeek 4.1 **0.6102** (unconfirmed, 1 paper hit the token limit), Qwen3.6-27B 0.5458.
+Unfiltered full text, 1 call, on top of `--clean-taxa --v4-prompt`. DeepSeek 4.1: **0.6102** / 0.4822 / 0.5006
+(C1 / C1+C2b / Micro) — tied-best C1 with the post-redo `--v4 --bilingual-knn` run, best C1+C2b and Micro
+overall — but it is a pre-cache run and not production-ready: a paper longer than the context limit comes back
+empty (1 paper on DeepSeek 4.1 at 1,048,576 tokens, 3 papers on Qwen3.6-27B), so it needs a split fallback
+first. Qwen3.6-27B: 0.5458 / 0.4029 / 0.4136, rejected there.
+
+#### Catch-up on the complete caches (26–27 Nov, within Phase 3)
+
+All Dev parser caches are complete since 26 Nov: Marker 100/100, Docling Light 100/100, Minh's full
+Docling JSON 100/100, GROBID 99/100 (V2BVMBPF has no text anywhere). Three isolated tests ran on them,
+each on both models. The first row is the reference (C1 / C1+C2b / Micro); the other rows give
+the change in points against their baseline:
+
+| Test | DeepSeek 4.1 | Qwen3.6-27B | Verdict |
+|---|---|---|---|
+| AutoParser `--clean-taxa`, no v4 — new no-v4 reference | 0.5883 / 0.4400 / 0.4426 | 0.5689 / 0.4047 / 0.4083 | reference |
+| v4 prompt on top of it (post-redo) | −0.4 / +3.8 / +5.7 | +0.1 / +0.8 / +2.0 | C1 flat within variance; C1+C2b and Micro up on DeepSeek 4.1 only |
+| `--level-prompt` (Minh's second call for `biodiversity_level`) | −0.4 / +0.5 / −0.2 | −2.2 / +0.4 / +0.2 | rejected again on both models |
+| Minh's full Docling JSON instead of AutoParser (both `--clean-taxa --v4-prompt`) | +0.4 / −1.6 / −1.9 | +1.9 / +1.1 / +1.5 | fair rerun: on Qwen3.6-27B full Docling wins all three metrics |
+
+**The 26 Nov redos did not recompute.** The catch-up queue meant to rerun the v4 family and Marker on the
+complete caches. Each of the 8 runs ended after 2–3 seconds with `resumed: 100` and 0 papers processed:
+the pipeline resumes from its checkpoint file, and the queue never removed the finished checkpoints.
+So every AutoParser v4 number from 24–25 Nov and both Marker `--ev --ctaxa` numbers were from
+before the complete caches. Fixed on 27 Nov with `scripts/run_redo_queue.sh`: it archives the run,
+deletes the checkpoint and requests all 100 papers again (old predictions kept in
+`outputs/redo_backup/`). **Redos finished 27 Nov (10/10, 0 errors):** the biggest mover was
+`--full-text` on DeepSeek 4.1, down 2.7 C1 points to 0.5759; the biggest winner was
+`--v4 --bilingual-knn` (16k), up to 0.6102 — now the best confirmed run. Key lesson: identical
+configs moved by up to ±2.7 C1 points between runs, so small OFAT deltas are noise; details and
+the full delta table in section 3f of [docs/experiment_log.md](docs/experiment_log.md).
+
+**Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
+schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
+**C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032**. Against our best single run that is +4.0 C1 points
+(CI +0.1 to +8.0) and +5.6 C1+C2b points (CI +1.1 to +10.5), with Micro equal. She wins on
+`ecosystem_service` (category 0.522 vs 0.353, term 0.400 vs 0.200) and on `ecosystem_type`; we are
+ahead only on taxa names. Open: her README reports C1 0.6881 for the same defaults while the repro
+gives 0.6508 (unexplained), and her neighbour-based service rule has never been tested in our pipeline.
+Bootstrap tables and per-field comparison: section 3f in [docs/experiment_log.md](docs/experiment_log.md).
 
 ## 4. Single sources of truth (no duplicates)
 
-- All 44 runs with scores: [docs/experiment_matrix.md](docs/experiment_matrix.md)
+- All 52 Architecture-3 runs with scores, plus every older architecture in table 3 of the same file: [docs/experiment_matrix.md](docs/experiment_matrix.md)
 - Every decision with delta: in the phase sections above, full tables in [docs/experiment_log.md](docs/experiment_log.md)
 - Gold problems per paper (with legend): [docs/dev_100_paper_audit_table.md](docs/dev_100_paper_audit_table.md)
-- Overall ranking: [docs/experiment_matrix.md](docs/experiment_matrix.md) (Table 3 after regeneration; until then [docs/leaderboard_summary.md](docs/leaderboard_summary.md) as historical snapshot)
+- Overall ranking: [docs/experiment_matrix.md](docs/experiment_matrix.md) (table 3 lists every run across all architectures, regenerated 27 Nov; [docs/leaderboard_summary.md](docs/leaderboard_summary.md) stays as historical snapshot)
 
 ## 5. Open work
 
-University GPU-server batch (all parser sets, running) → pull + 100/100 check → 6 redos on
-complete caches + isolated clean-taxa run + fair Docling re-match → feed Minh repro →
-train `first_pages` + retrieval neighbours → per-paper matrix in evaluator (new rule).
+Parser caches pulled and verified on 26 Nov. Done on them: isolated clean-taxa run, `--level-prompt`
+re-test, fair Docling re-match, Minh repro (results in "Catch-up" above) and the true redos of the
+v4 family + Marker on 27 Nov (results in "Catch-up" and section 3f). Still open: redo the Docling
+Light v4 pair and the rawft run (both pre-cache), the per-paper matrix in evaluator, variance test
+with fresh requests, clean up the batch directories on the GPU server and on `lenserver-hp`.
 GROBID stays 99/100 (chunked fill recovered 8 of 9; V2BVMBPF has zero text anywhere).
 Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analysis_fields.md).
 
 ### Queued OFAT runs (by expected score gain, cheapest first, each on both models)
 
-1. Isolated `--clean-taxa` (queued) — prices the taxa-cleanup lever.
-2. Minh level prompt vs. folded single-prompt level rules (biodiversity_level default-bias; biggest C1 lever).
-3. Collective-group rule for `species_group` + collective-taxa second question (mirrors Minh's level call).
-4. Water mapping + eco-type rule (two C1 fields move together; likely largest combined C1 lever).
-5. Taxa-aware budget / dedicated taxa pass + translated names with English evidence (largest C1+C2b/Micro lever).
+1. **Flag pricing on the confirmed recipe** (queued 27 Nov, waits for redo2): recipe minus
+   `--clean-taxa` → `autoparser_v4_biknn`, recipe plus `--evidence-gates` →
+   `autoparser_ev_ctaxa_v4_biknn`; baselines 0.6102 (DeepSeek) / 0.5604 (Qwen).
+2. **Budget ×4** (new `--budget-chars` flag, queued): 64k instead of 16k characters across
+   sections, 1 call unchanged — targets eco_type/service content cut off today. The Minhs-repro
+   comparison says this is where her pipeline wins (3–4× more document content).
+3. **Level rules folded into the main prompt** (new `--level-fold` flag, queued): Minh's level_v1
+   rules (enum definitions + base rates + main-subject rules) in the v4 prompt instead of a second
+   call — the second call itself lost C1 twice; the fold is untested (biodiversity_level is the
+   biggest single C1 lever).
+4. **Neighbour-based service rule** (from Minh's pipeline F, next to implement): drop a paper's
+   ecosystem services when none of its similar training papers has any. Train-derived rule — see
+   the overfitting note in the log (3f): the rule comes from train statistics, only its adoption
+   decision uses dev, and it stays threshold-free to keep that honest.
+5. Collective-group rule for `species_group` + collective-taxa second question.
+6. Water mapping + eco-type rule (two C1 fields move together).
+7. Taxa-aware budget / dedicated taxa pass + translated names with English evidence.
 
 ### Future hypotheses (not started)
 
-- **Fair Docling rerun.** Minh's JSON variant never ran in our pipeline — numbers unknown.
-  Needs a reader for her JSON format first, then the same v4 run as the 1:1 proof.
+- **Neighbour-based service rule (from Minh's pipeline F).** Drop a paper's ecosystem services
+  when none of its similar training papers has any. Never tested in our pipeline; it targets our
+  weakest precision (`ecosystem_service.term` 0.125) and is where her pipeline gains most.
+  (The fair Docling rerun that used to be listed here is done — see "Catch-up" above.)
 - **Level decision into one prompt.** She spends a second call per paper on `biodiversity_level`;
   hypothesis: folding the level rules into the main prompt keeps the gain and halves the calls.
 - **Cheap pre-filter router.** Today every paper pays for GROBID and (in the batch) Docling +
@@ -714,7 +783,7 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   pick the single cheapest sufficient parser up front — biggest savings where Docling costs GPU hours today.
   Decide between all five: PyMuPDF, GROBID, Marker, Docling Light, full Docling. Likely triggers:
   no text layer → OCR path (full Docling); table-heavy + text layer → GROBID/Marker; short clean
-  papers → PyMuPDF only. The agreement analysis runs once the fair Docling rerun exists.
+  papers → PyMuPDF only. The agreement analysis can start now (fair Docling rerun exists since 26 Nov).
   First hard rule, proven by V2BVMBPF (1975 scan, 4 pages, 0 characters, 1 image each):
   PyMuPDF finds no text + the PDF holds page images → GROBID is blind, skip it. Marker reads
   scans itself via OCR (proven: 27 KB real text from that exact paper), so route scans to Marker
@@ -796,17 +865,25 @@ Hypothesis: same as above — the model is right about the service and gets puni
 ## 7. Next steps to milestone 2
 
 Working pipeline as of today: Architecture 3 with **AutoParser router**, **`--clean-taxa`**,
-**Minh v4 prompt**, 1 call per paper, provider **DeepSeek 4.1** (logged: C1 ~0.60, C1+C2b ~0.47,
-Micro ~0.50; `--raw-fulltext` at C1 0.6102 still unconfirmed).
-
-**Running now:** Grünau full batch (caches) and Minh repro scoring (target: her 0.6644 / 0.6881).
+**Minh v4 prompt + `--bilingual-knn`**, 16k budget, 1 call per paper, provider **DeepSeek 4.1**
+(redone on the complete caches 27 Nov: **C1 0.6102 / C1+C2b 0.4715 / Micro 0.4901** — best
+confirmed run; the rawft variant still holds the best C1+C2b 0.4822 and Micro 0.5006 but is
+pre-cache and lacks the token-limit fallback). Run-to-run variance is ±2–3 C1 points (see redo
+warning in phase 3), so treat small OFAT deltas as noise.
 
 **Next, per limitation (see [limitations](#6-limitations-where-we-still-fail) and [error analysis](docs/error_analysis_fields.md)):**
 
-1. Pull caches, verify 100/100, server cleanup.
-2. Implement Minh-JSON reader in our pipeline, then fair Docling rerun + 6 redos on complete caches.
-3. Isolated `--clean-taxa` + per-paper matrix for every run.
-4. Own prompt optimization, OFAT order: level decision, collective group, water mapping, taxa evidence.
+1. Two pipelines for the milestone, decided: **Minh's pipeline F is the submission base**
+   (C1 0.6508 on our evaluator, the only gap clearly beyond run variance) and **our AutoParser
+   biknn recipe is the alternative pipeline** (C1 0.6102 confirmed, production-ready, 1 call).
+   Remaining checks on hers: clarify her 0.6881 vs. our repro 0.6508 (score her original
+   predictions), and test her neighbour-based service rule in our pipeline (queued, item 4 above).
+2. Redo the remaining pre-cache runs that anchor claims: Docling Light v4 pair and
+   `--raw-fulltext` (queued 27 Nov as redo2; rawft runs with its known token-limit handicap —
+   the split fallback stays a code task).
+3. Per-paper matrix for every run (isolated `--clean-taxa` done 26 Nov).
+4. Clean up the batch directories on the GPU server and on `lenserver-hp`.
+5. Collective group, water mapping, taxa evidence (items 5-7 above).
 
 **Medium term:** true variance test with fresh requests (bypassing the LLM cache);
 Train-908 full parse, all four parser sets (`scripts/preprocess_train_gruenau.sh` ready — needs

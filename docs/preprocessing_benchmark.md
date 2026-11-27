@@ -12,6 +12,7 @@ This document logs the exact configuration, commands, hardware environment, and 
 | **2. GROBID** | `grobid/grobid:0.9.1-crf` (`http://127.0.0.1:8070`) | `lenlenovo` Docker | Multipart upload to `/api/processFulltextDocument`; TEI `<abstract>` + `<body>/<div>` mapped by `<head>` regex into `intro`, `methods`, `results`, `discussion`; `<back>` references stripped | `data/parsed_text/grobid_dev/<id>.tei.xml` |
 | **3. Marker** | `marker-pdf==2.2.0` (`PdfConverter`) | `lenserver-hp` CPU (8 cores, 10 GiB RAM free; isolated `/home/lennard/tmp_pdf_parse`) | Markdown output split on `#{1,3}` headings, stops at `References/Bibliography/Literatur/Appendix`, grouped into `<= 4` blocks; falls back to PyMuPDF on conversion errors | `data/parsed_text/marker_dev/<id>.md` |
 | **4. Docling** | `docling==2.151.1` (`do_ocr=False`, `do_table_structure=True`, `document_timeout=240.0`) | `lenserver-hp` CPU (isolated `/home/lennard/tmp_pdf_parse`) | Markdown output split identically via `_split_markdown_to_sections()`; falls back to PyMuPDF on error/timeout | `data/parsed_text/docling_dev/<id>.md` |
+| **5. Full Docling (Minh's JSON)** | `docling` with `do_ocr=True`, `do_table_structure=True` (Minh Anh's converter from branch `minhanh_testing`) | University GPU server batch, pulled to `lenlenovo` | `extract_minh_json_sections()`: body in reading order, new section at every `section_header`, `[page N]` markers, footers skipped, grouped into `<= 4` blocks; falls back to the AutoParser router if the JSON is missing | `data/processed/docling/dev/<id>.json` |
 
 All four parsers feed into the exact same downstream prompt (`max_total_chars = 16000` distributed evenly across sections, Top-2 TF-IDF `train.jsonl` kNN anchors, schema guidelines + full term enums).
 
@@ -35,6 +36,10 @@ All four parsers feed into the exact same downstream prompt (`max_total_chars = 
 # 4. Docling (using pre-converted cached Markdown in data/parsed_text/docling_dev/)
 .venv/bin/python -u src/models/architectures/llm_rag_sections.py --provider saia --model deepseek-v4.1-flash-1017 --docling --rpm 20
 .venv/bin/python -u src/models/architectures/llm_rag_sections.py --provider hu --model hu-reasoning --docling --rpm 15
+
+# 5. Full Docling through Minh's JSON cache (fair rerun 2026-11-26; same v4 prompt as the AutoParser reference)
+.venv/bin/python -u src/models/architectures/llm_rag_sections.py --provider saia --model deepseek-v4.1-flash-1017 --minh-json --clean-taxa --v4-prompt --rpm 20
+.venv/bin/python -u src/models/architectures/llm_rag_sections.py --provider hu --model hu-reasoning --minh-json --clean-taxa --v4-prompt --rpm 15
 ```
 
 ---
@@ -51,12 +56,24 @@ All four parsers feed into the exact same downstream prompt (`max_total_chars = 
 | **Marker** | `hu-reasoning` (Qwen 3.6-27B) | `0.5837` | `0.4197` | `0.4015` | 100/100 converted |
 | **Docling** | `deepseek-v4.1-flash-1017` | `0.5634` | `0.4221` | `0.4131` | 100/100 converted |
 | **Docling** | `hu-reasoning` (Qwen 3.6-27B) | `0.5613` | `0.4018` | `0.3748` | 100/100 converted |
+| **Full Docling (Minh's JSON, OCR on)** | `deepseek-v4.1-flash-1017` | `0.5883` | `0.4626` | `0.4804` | Fair rerun 2026-11-26 with `--clean-taxa --v4-prompt` |
+| **Full Docling (Minh's JSON, OCR on)** | `hu-reasoning` (Qwen 3.6-27B) | `0.5894` | `0.4233` | `0.4426` | Fair rerun 2026-11-26 with `--clean-taxa --v4-prompt` |
+
+Rows 1–8 share the plain baseline prompt, so they compare parsers directly. Rows 9–10 use the v4 prompt
+and are only comparable with AutoParser under the same prompt: `0.5953 / 0.4744 / 0.5019`
+(DeepSeek 4.1) and `0.5571 / 0.4176 / 0.4279` (Qwen3.6-27B). AutoParser stays ahead on DeepSeek 4.1
+by 0.7 C1 points (within noise); full Docling is 3.2 points ahead on Qwen3.6-27B. Full tables:
+[experiment_matrix.md](experiment_matrix.md) and section 3f in [experiment_log.md](experiment_log.md).
 
 ---
 
 ## 4. Planned Smart Preprocessing Router (Zero-Overfitting)
 
-Once Marker and Docling benchmarks finish, we will evaluate an objective, document-agnostic routing cascade (validated via bootstrap / 5-fold CV on Dev-100):
+**Status (2026-11-21):** this router exists as `--auto-parser`: Marker when GROBID finds `<= 3` sections
+or keeps `< 65 %` of the text, otherwise GROBID. The offline oracle analysis and its bootstrap are in
+section 4 of [experiment_log.md](experiment_log.md).
+
+Original plan — an objective, document-agnostic routing cascade (validated via bootstrap / 5-fold CV on Dev-100):
 1. **Primary (Academic Multi-Section Papers):** Use **GROBID** if it detects `>= 2` structured sections and retains sufficient text coverage vs. raw PyMuPDF.
 2. **Secondary (Brochures, Reports, Table-Heavy PDFs):** Route to **Marker** or **Docling** (whichever shows higher stability and accuracy on non-academic layouts).
 3. **Fallback:** Fall back to **PyMuPDF** whenever Marker/Docling errors or returns `< 500` characters.

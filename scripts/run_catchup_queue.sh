@@ -33,7 +33,9 @@ wait_for_caches() {
 }
 
 # run_one <tag> <provider> <model> <rpm> <extra flags...>
-# Redos always execute: old metrics never count (that's the point of the redos).
+# NOTE (2026-11-27): a redo with an existing 100-paper checkpoint does NOT recompute here.
+# llm_rag_sections.py resumes from the checkpoint and exits after 0 papers ("resumed: 100"),
+# which is what happened to the 8 redos of 26 Nov. Use run_redo_queue.sh for real redos.
 # Completion is tracked with done_<tag> markers so restarts resume after the last run.
 run_one() {
   local tag="$1" provider="$2" model="$3" rpm="$4"; shift 4
@@ -63,7 +65,7 @@ run_one autoparser_full_ctaxa_v4 saia "$SAIA_MODEL" 20 --auto-parser --clean-tax
 run_one autoparser_ctaxa_v4_biknn saia "$SAIA_MODEL" 20 --auto-parser --clean-taxa --v4-prompt --bilingual-knn || true
 run_one autoparser_ctaxa_v4_biknn_hu hu "$HU_MODEL" 15 --auto-parser --clean-taxa --v4-prompt --bilingual-knn || true
 run_one marker_ev_ctaxa          saia "$SAIA_MODEL" 20 --marker --evidence-gates --clean-taxa || true
-run_one marker_ev_ctaxa_hu        hu "$HU_MODEL" 15 --marker --evidence --clean-taxa || true
+run_one marker_ev_ctaxa_hu        hu "$HU_MODEL" 15 --marker --evidence-gates --clean-taxa || true
 # --- 5: isolated clean-taxa (both providers) ---
 run_one autoparser_ctaxa         saia "$SAIA_MODEL" 20 --auto-parser --clean-taxa || true
 run_one autoparser_ctaxa_hu      hu   "$HU_MODEL"   15 --auto-parser --clean-taxa || true

@@ -843,8 +843,13 @@ def build_v4_user_prompt(
     eco_category_map_str: str,
     max_total_chars: int = 16000,
     full_text: bool = False,
+    level_fold: bool = False,
 ) -> str:
-    """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections."""
+    """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections.
+
+    `level_fold` injects a dedicated biodiversity_level decision block (adapted from
+    Minh's level_v1 field prompt) into the main prompt instead of using a second call.
+    """
     if full_text:
         doc_text = "\n\n".join(f"### SECTION: {s['section_name']}\n{s['text']}" for s in sections)
     else:
@@ -895,8 +900,38 @@ def build_v4_user_prompt(
         "]}\n\n"
         "## How the database labelled similar documents (training examples)\n"
         f"{examples_str}\n\n"
-        f"## Text\n<<<\n{doc_text}\n>>>"
+        + (LEVEL_FOLD_BLOCK + "\n\n" if level_fold else "")
+        + f"## Text\n<<<\n{doc_text}\n>>>"
     )
+
+
+# Dedicated biodiversity_level decision rules folded into the main prompt
+# (--level-fold). Compact adaptation of Minh's level_v1 field prompt: her enum
+# definitions, base rates and main-subject rules, without the confidence field
+# (our output schema has none) and without a second LLM call.
+LEVEL_FOLD_BLOCK = """## biodiversity_level decision guide (apply to field 3)
+Levels are labelled only when THIS document examines biodiversity at that level: it
+measures, compares, models or reviews it as a main subject. A level that appears only
+as background, as a goal in the introduction, or in citations of other work is NOT labelled.
+- Artenvielfalt (~two thirds of labelled documents): species richness, species numbers,
+  diversity indices (Shannon, Simpson), species lists/inventories, species gains and losses.
+- Zusammensetzung der Artengemeinschaft (~one third): community composition, abundance or
+  biomass of several species compared between sites/treatments/years, community shifts,
+  microbial communities from sequencing.
+- Habitatdiversität (~one in six): several habitat/biotope types compared, habitat
+  heterogeneity, state or loss of habitats, habitat mosaics.
+- Funktionelle Diversität (~one in six): functional groups, functional traits, multifunctionality,
+  effects of diversity on ecosystem functions.
+- Genetische Diversität (~one in fifteen): genetic variation, genotypes, molecular markers,
+  population genetics.
+- Strukturelle Diversität (~one in fifteen): stand or vegetation structure, layers, deadwood,
+  mixed vs. pure stands, structural habitat heterogeneity.
+- Phylogenetische Diversität (rare): phylogenetic diversity/relatedness, phylogenetic trees.
+About four in ten documents get NO level at all (e.g. physiology, growth or behaviour studies
+without comparing species; soil/water/climate processes; policy or services without biodiversity
+data) - an empty list is a valid answer. Check every level on its own; typical pairs are
+Artenvielfalt + Zusammensetzung der Artengemeinschaft, + Habitatdiversität, + Funktionelle Diversität.
+Label "possible but doubtful" cases only when a concrete measurement or comparison is described."""
 
 
 def main() -> None:
@@ -913,12 +948,14 @@ def main() -> None:
     parser.add_argument("--focus-prompt", action="store_true", help="Use document-focus wording + train base-rates (v2 insight)")
     parser.add_argument("--detox-rag", action="store_true", help="Char n-gram retrieval + strip taxa from kNN anchors")
     parser.add_argument("--role-budget", action="store_true", help="28k role-weighted section budget (Methods/Results prioritized)")
+    parser.add_argument("--budget-chars", type=int, default=16000, help="Total character budget distributed across sections in the prompt (default 16000)")
     parser.add_argument("--evidence-gates", action="store_true", help="Require verbatim quote evidence on sparse fields")
     parser.add_argument("--clean-taxa", action="store_true", help="Do not fabricate '-' or species_group fallbacks in taxa")
     parser.add_argument("--self-check-reasoning", action="store_true", help="Structured S1-S5 self-check reasoning + R7 taxa spelling rules")
     parser.add_argument("--per-label-quotes", action="store_true", help="Flat labels JSON with 3-60 word verbatim quote check on every label")
     parser.add_argument("--eco-category-map", action="store_true", help="Group allowed ecosystem_type terms under each category")
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
+    parser.add_argument("--level-fold", action="store_true", help="Fold biodiversity_level decision rules into the main prompt (no second call)")
     parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
     parser.add_argument("--bilingual-knn", action="store_true", help="Use bilingual char_wb 3-5 TF-IDF retrieval without stripping taxa")
     parser.add_argument("--raw-fulltext", action="store_true", help="Unfiltered full AutoParser text in 1 call + strict exact-enum normalization")
@@ -1007,6 +1044,8 @@ def main() -> None:
         "_v4" if args.v4_prompt else "",
         "_biknn" if args.bilingual_knn else "",
         "_rawft" if args.raw_fulltext else "",
+        "_lvlf" if args.level_fold else "",
+        (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
     run_title = f"Architecture 3 (RAG-Anchored Sections{parser_label}{opt_suffix}): {actual_model}"
@@ -1063,7 +1102,10 @@ def main() -> None:
             part_text = " ".join(s["text"] for s in part_secs)
             if args.v4_prompt:
                 user_prompt = build_v4_user_prompt(
-                    rec, part_secs, few_shots, field_spec, eco_category_map_str, full_text=(args.full_text or args.raw_fulltext)
+                    rec, part_secs, few_shots, field_spec, eco_category_map_str,
+                    max_total_chars=args.budget_chars,
+                    full_text=(args.full_text or args.raw_fulltext),
+                    level_fold=args.level_fold,
                 )
             else:
                 user_prompt = build_rag_user_prompt(
@@ -1071,6 +1113,7 @@ def main() -> None:
                     part_secs,
                     few_shots,
                     field_spec,
+                    max_total_chars=args.budget_chars,
                     role_budget=args.role_budget,
                     evidence_gates=args.evidence_gates,
                     full_text=(args.full_text or args.raw_fulltext),
