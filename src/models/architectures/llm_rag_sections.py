@@ -956,6 +956,7 @@ def main() -> None:
     parser.add_argument("--eco-category-map", action="store_true", help="Group allowed ecosystem_type terms under each category")
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--level-fold", action="store_true", help="Fold biodiversity_level decision rules into the main prompt (no second call)")
+    parser.add_argument("--service-gate", action="store_true", help="Drop ecosystem_service labels when none of the retrieved training neighbours has any")
     parser.add_argument("--v4-prompt", action="store_true", help="Use Minh Anh's cohesive prompt v4 + compact k=3 examples + 3-60w quote check")
     parser.add_argument("--bilingual-knn", action="store_true", help="Use bilingual char_wb 3-5 TF-IDF retrieval without stripping taxa")
     parser.add_argument("--raw-fulltext", action="store_true", help="Unfiltered full AutoParser text in 1 call + strict exact-enum normalization")
@@ -1045,6 +1046,7 @@ def main() -> None:
         "_biknn" if args.bilingual_knn else "",
         "_rawft" if args.raw_fulltext else "",
         "_lvlf" if args.level_fold else "",
+        "_svcg" if args.service_gate else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
     run_model_id = f"{MODEL_BASE_ID}_{args.provider}_{model_slug}{parser_suffix}{opt_suffix}"
@@ -1154,6 +1156,21 @@ def main() -> None:
         # Dense fallback for habitat if completely empty
         if not norm.get("habitat"):
             norm["habitat"] = [majority_learned["habitat"]["majority_value"]]
+
+        # Neighbour service gate: ecosystem services are rare (~22% of train papers).
+        # Drop this paper's service labels when none of the k retrieved training
+        # neighbours has any — train-statistics rule, threshold-free (0 of k).
+        if args.service_gate and norm.get("ecosystem_service"):
+            neighbour_has_service = any(
+                (fs.get("gold_json") or {}).get("ecosystem_service") for fs in few_shots
+            )
+            if not neighbour_has_service:
+                print(
+                    f"    service-gate: dropped {len(norm['ecosystem_service'])} service "
+                    "entries (none of the neighbours has services)",
+                    flush=True,
+                )
+                norm["ecosystem_service"] = []
 
         predictions[zot_id] = norm
         with ckpt_file.open("a", encoding="utf-8") as f_out:

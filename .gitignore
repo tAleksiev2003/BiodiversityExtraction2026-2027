@@ -12,10 +12,8 @@ data/processed/*
 !data/**/.gitkeep
 *.pdf
 
-# Generated model outputs & CodaBench submissions
-outputs/base_models/*
-outputs/architectures/*
-outputs/all_models_comparison.md
+# Generated model outputs, run logs & CodaBench submissions
+outputs/*
 !outputs/**/.gitkeep
 
 # Python & OS environment

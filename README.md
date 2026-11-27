@@ -762,10 +762,11 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
    rules (enum definitions + base rates + main-subject rules) in the v4 prompt instead of a second
    call — the second call itself lost C1 twice; the fold is untested (biodiversity_level is the
    biggest single C1 lever).
-4. **Neighbour-based service rule** (from Minh's pipeline F, next to implement): drop a paper's
-   ecosystem services when none of its similar training papers has any. Train-derived rule — see
-   the overfitting note in the log (3f): the rule comes from train statistics, only its adoption
-   decision uses dev, and it stays threshold-free to keep that honest.
+4. **Neighbour-based service rule** (from Minh's pipeline F, implemented as `--service-gate`,
+   queued as validate3): drop a paper's ecosystem services when none of its similar training
+   papers has any. Train-derived rule — see the overfitting note in the log (3f): the rule comes
+   from train statistics, only its adoption decision uses dev, and it stays threshold-free to
+   keep that honest.
 5. Collective-group rule for `species_group` + collective-taxa second question.
 6. Water mapping + eco-type rule (two C1 fields move together).
 7. Taxa-aware budget / dedicated taxa pass + translated names with English evidence.
@@ -870,6 +871,16 @@ Working pipeline as of today: Architecture 3 with **AutoParser router**, **`--cl
 confirmed run; the rawft variant still holds the best C1+C2b 0.4822 and Micro 0.5006 but is
 pre-cache and lacks the token-limit fallback). Run-to-run variance is ±2–3 C1 points (see redo
 warning in phase 3), so treat small OFAT deltas as noise.
+
+**Efficiency (vs. Minh's pipeline F, the strongest system):** our preprocessing is CPU-only and
+takes seconds per paper — GROBID (a structure parser, ~88 % of papers) plus Marker (a layout
+parser, ~12 %) — while her Docling-with-OCR conversion of every PDF needed a university GPU
+server. At inference we send **1 call per paper** (16k characters of text), she sends **2 calls**
+(full text + a second call only for `biodiversity_level`). Cost ranking of the parsers, cheapest
+first: PyMuPDF (plain text, <0.1 s) < GROBID (seconds, CPU) < Marker (~5–15 s, CPU) < Docling
+Light (CPU, minutes) < full Docling with OCR (GPU-class). We trade roughly −4 C1 points
+(−6 %) for that; her advantage sits in `ecosystem_service` and `ecosystem_type`, which the
+queued optimizations below target.
 
 **Next, per limitation (see [limitations](#6-limitations-where-we-still-fail) and [error analysis](docs/error_analysis_fields.md)):**
 
