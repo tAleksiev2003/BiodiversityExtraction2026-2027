@@ -199,7 +199,7 @@ Full 44-run per-field table: `docs/experiment_matrix.md`.
 | `+ --v4-prompt` | 0.5953 / 0.4744 / 0.5019 (Δ +0.0070 / +0.0344 / +0.0593) | 0.5571 / 0.4176 / 0.4279 (Δ −0.0118 / +0.0129 / +0.0196) | v4 lifts C1+C2b and Micro on DeepSeek 4.1 only; no C1 gain on either model |
 | `--clean-taxa --level-prompt` | 0.5841 / 0.4453 / 0.4402 (Δ −0.0042 / +0.0053 / −0.0024) | 0.5469 / 0.4084 / 0.4101 (Δ −0.0220 / +0.0037 / +0.0018) | **rejected**: a second call per paper, no C1 gain on either model (second test after 3d) |
 | Minh's full Docling JSON `--clean-taxa --v4-prompt` (fair rerun, vs AutoParser `--clean-taxa --v4-prompt`) | 0.5883 / 0.4626 / 0.4804 (Δ −0.0070 / −0.0118 / −0.0215) | **0.5894** / 0.4233 / **0.4426** (Δ +0.0323 / +0.0057 / +0.0147) | Gap to AutoParser shrinks from 2.6 to 0.7 C1 points on DeepSeek 4.1; on Qwen3.6-27B full Docling is level or ahead (best C1 and Micro of any Qwen run) |
-| `--raw-fulltext` instead of `--full-text` (both `--clean-taxa --v4-prompt`, 25 Nov) | **0.6102** / **0.4822** / 0.5006 (Δ +0.0076 / +0.0197 / +0.0132) | 0.5458 / 0.4029 / 0.4136 (Δ −0.0315 / −0.0099 / −0.0046) | Top single run on DeepSeek 4.1, but not production-ready: no token-limit fallback (1 paper empty at the 1,048,576-token limit, 3 papers empty on Qwen). **Rejected** on Qwen3.6-27B |
+| `--raw-fulltext` instead of `--full-text` (both `--clean-taxa --v4-prompt`, 25 Nov) | **0.6102** / **0.4822** / 0.5006 (Δ +0.0076 / +0.0197 / +0.0132) | 0.5458 / 0.4029 / 0.4136 (Δ −0.0315 / −0.0099 / −0.0046) | Top single run on DeepSeek 4.1 at the time, but not production-ready: no token-limit fallback (1 paper empty at the 1,048,576-token limit, 3 papers empty on Qwen). **Rejected** on Qwen3.6-27B. **Superseded 28 Nov:** the redo gave 0.5917 — the 0.6102 was a high variance draw; rejected on DeepSeek too |
 
 **Paired bootstrap over the 100 Dev papers** (4,000 resamples, seed 42, difference A − B with 95 % CI; measures paper sampling only, not run-to-run LLM noise — every run is a single run):
 
@@ -265,19 +265,19 @@ The router rules were derived on Dev-100; the train split (labels never used for
 
 **Downstream check (queued, `bio_trainverif`, waits for validate3).** New flags in `llm_rag_sections.py` (commit `cc374e7`): `--split train`, `--ids-file`, `--knn-exclude-self` (mandatory on train — the paper itself must never appear as its own few-shot neighbour), run_id suffix `_tr`, split logged in run config. Stratified sample `scripts/train_router_sample_ids.txt` (seed 42): 20 long (≥ 25 pages), 10 medium (10–24), 10 short/clean, 6 scan → 46 papers. Three parser routes with identical baseline prompt flags, compared per-paper on train labels: GROBID vs. Docling Light (converts on the fly) vs. Marker (**note:** no Marker cache on lenlenovo → this arm currently falls back to PyMuPDF text; a real Marker arm needs the HP Marker conversions or a train Marker batch). Success criterion: the long-paper route must reproduce its dev per-paper advantage on the 20 long train papers; the scan papers must beat GROBID. **Results pending.**
 
-**Minh repro (0 extra requests, scored 27 Nov).** Her pipeline F (`minhanh_testing@ac98eac`) ran on `lenlenovo` in `~/Home/minhanh_repro/` with our PDFs, gold files and schemas (25 Nov, 217 fresh SAIA requests; 98 papers in one call, 2 in parts; verbatim checker 3–60 words; level prompt; eco-type rule dropped 10 entries; service rule dropped 13 entries in 12 papers). Her dev selection is exactly our `dev_100_ids`. Scored with our evaluator on the identical 100 papers: **C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032** (her own scorer gives the same C1; her "c2b" 0.4534 is a different definition). Against our best single run (`autoparser_ctaxa_v4_rawft`): C1 **+0.0403 [+0.0012, +0.0796]**, C1+C2b **+0.0562 [+0.0113, +0.1045]**, Micro +0.0027 [−0.0331, +0.0355].
+**Minh repro (0 extra requests, scored 27 Nov).** Her pipeline F (`minhanh_testing@ac98eac`) ran on `lenlenovo` in `~/Home/minhanh_repro/` with our PDFs, gold files and schemas (25 Nov, 217 fresh SAIA requests; 98 papers in one call, 2 in parts; verbatim checker 3–60 words; level prompt; eco-type rule dropped 10 entries; service rule dropped 13 entries in 12 papers). Her dev selection is exactly our `dev_100_ids`. Scored with our evaluator on the identical 100 papers: **C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032** (her own scorer gives the same C1; her "c2b" 0.4534 is a different definition). Against the redo-confirmed best run (`autoparser_ctaxa_v4_biknn`, re-bootstrapped 28 Nov): C1 **+0.0402 [−0.0018, +0.0825]** (right at the significance edge), C1+C2b **+0.0668 [+0.0180, +0.1183], P = 1.00**, Micro +0.0130 [−0.0308, +0.0562].
 
-| Field F1 | Minh's pipeline F | Our best (`autoparser_ctaxa_v4_rawft`) |
+| Field F1 | Minh's pipeline F | Our best (`autoparser_ctaxa_v4_biknn`, redo-confirmed) |
 |---|---:|---:|
-| habitat | 0.790 | 0.792 |
-| biodiversity_level | 0.444 | 0.394 |
-| ecosystem_type.category | 0.719 | 0.626 |
-| ecosystem_type.term | 0.620 | 0.558 |
-| taxa.species_group | 0.680 | 0.680 |
-| taxa.scientific_name | 0.327 | 0.380 |
-| taxa.german_name | 0.347 | 0.356 |
-| ecosystem_service.category | 0.522 | 0.353 |
-| ecosystem_service.term | 0.400 | 0.200 |
+| habitat | 0.790 | 0.811 |
+| biodiversity_level | 0.444 | 0.400 |
+| ecosystem_type.category | 0.719 | 0.625 |
+| ecosystem_type.term | 0.620 | 0.551 |
+| taxa.species_group | 0.680 | 0.664 |
+| taxa.scientific_name | 0.327 | 0.355 |
+| taxa.german_name | 0.347 | 0.335 |
+| ecosystem_service.category | 0.522 | 0.316 |
+| ecosystem_service.term | 0.400 | 0.186 |
 
 She wins on `ecosystem_service` and `ecosystem_type`; we are ahead only on taxa names. Two open points: (1) her README reports C1 0.6881 for the same defaults, the repro gives 0.6508 — unexplained, so ask for her original `predictions.jsonl` and score it before quoting either number; (2) her neighbour-based service rule (drop a paper's services when none of its similar training papers has any) was never tested in our pipeline — it is not implemented there, and our `ecosystem_service.term` precision is 0.125.
 
@@ -292,7 +292,7 @@ ssh lenlenovo 'tmux new -d -s bio_redo_saia "bash /tmp/run_redo_queue.sh saia"' 
 .venv/bin/python scripts/paired_bootstrap.py \
   --pair llm_rag_sections_hu_hu-reasoning_minhjson_ctaxa_v4 llm_rag_sections_hu_hu-reasoning_autoparser_ctaxa_v4 \
   --external minh=$HOME/Home/minhanh_repro/runs/20261125-180748_full_text_dev \
-  --pair minh llm_rag_sections_saia_deepseek-v4.1-flash-1017_autoparser_ctaxa_v4_rawft
+  --pair minh llm_rag_sections_saia_deepseek-v4.1-flash-1017_autoparser_ctaxa_v4_biknn
 ```
 
 ### 3g. Exemplar error analysis: stratified random 10 wrong papers (0 API calls, 2026-11-27)

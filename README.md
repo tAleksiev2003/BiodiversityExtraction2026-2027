@@ -682,9 +682,8 @@ old +0.7 C1 edge (variance). The Docling rows above are still pre-cache — reru
 before quoting the exact gap again. Full deltas: section 3f in
 [docs/experiment_log.md](docs/experiment_log.md).
 
-The full v4 prompt — train examples, document focus, 3–60-word quote check — gives the best
-C1+C2b and Micro of every non-rawft run (and the first Micro above 0.50 came from it, before the
-redo moved that run). Parser side, both sides on fresh runs: our AutoParser (16k) vs Minh's full
+The full v4 prompt — train examples, document focus, 3–60-word quote check — delivers the best
+C1+C2b (0.4784, the 16k run) and near-best Micro (0.4994) of all our runs. Parser side, both sides on fresh runs: our AutoParser (16k) vs Minh's full
 Docling JSON is now a near-tie on DeepSeek 4.1 (C1 0.5847 vs 0.5883, AutoParser ahead on C1+C2b
 and Micro), and full Docling wins all three metrics on Qwen3.6-27B (C1 +1.9). The old claim
 "AutoParser beats Docling by 2.2–2.6 C1" compared two pre-cache runs and is dead: the 28 Nov redo
@@ -694,7 +693,7 @@ all parsers on Qwen3.6-27B.
 
 </details>
 
-#### `--raw-fulltext` (within Phase 3, 25 Nov)
+#### `--raw-fulltext` (within Phase 3, 25 Nov — **rejected 28 Nov**)
 
 Unfiltered full text, 1 call, on top of `--clean-taxa --v4-prompt`. Pre-cache it scored 0.6102 / 0.4822 / 0.5006
 on DeepSeek 4.1; **the 28 Nov redo settled it: 0.5917 / 0.4717 / 0.5014** — the old C1 was a high variance draw.
@@ -735,10 +734,11 @@ while Minh's OCR JSON still leads on Qwen3.6-27B. First flag prices (Qwen3.6-27B
 
 **Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
 schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
-**C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032**. Against our best single run that is +4.0 C1 points
-(CI +0.1 to +8.0) and +5.6 C1+C2b points (CI +1.1 to +10.5), with Micro equal. She wins on
-`ecosystem_service` (category 0.522 vs 0.353, term 0.400 vs 0.200) and on `ecosystem_type`; we are
-ahead only on taxa names. Open: her README reports C1 0.6881 for the same defaults while the repro
+**C1 0.6508 / C1+C2b 0.5389 / Micro 0.5032**. Against our confirmed best run (biknn, 0.6102 / 0.4715 /
+0.4901) that is +4.0 C1 points (CI −0.2 to +8.3 — right at the significance edge) and **+6.7 C1+C2b
+points (CI +1.8 to +11.8, P = 1.00)**, Micro +1.3. She wins on `ecosystem_service` (category 0.522 vs
+0.316, term 0.400 vs 0.186) and on `ecosystem_type` (0.719/0.620 vs 0.625/0.551); we stay ahead on
+habitat (0.811 vs 0.790) and `taxa.scientific_name` (0.355 vs 0.327). Open: her README reports C1 0.6881 for the same defaults while the repro
 gives 0.6508 (unexplained), and her neighbour-based service rule has never been tested in our pipeline.
 Bootstrap tables and per-field comparison: section 3f in [docs/experiment_log.md](docs/experiment_log.md).
 
@@ -753,9 +753,9 @@ Bootstrap tables and per-field comparison: section 3f in [docs/experiment_log.md
 
 Parser caches pulled and verified on 26 Nov. Done on them: isolated clean-taxa run, `--level-prompt`
 re-test, fair Docling re-match, Minh repro (results in "Catch-up" above) and the true redos of the
-v4 family + Marker on 27 Nov (results in "Catch-up" and section 3f). Still open: redo the Docling
-Light v4 pair and the rawft run (both pre-cache), the per-paper matrix in evaluator, variance test
-with fresh requests, clean up the batch directories on the GPU server and on `lenserver-hp`.
+v4 family + Marker on 27 Nov (results in "Catch-up" and section 3f). Still open: the per-paper matrix in
+evaluator, variance test with fresh requests, clean up the batch directories on the GPU server and
+on `lenserver-hp`.
 GROBID stays 99/100 (chunked fill recovered 8 of 9; V2BVMBPF has zero text anywhere).
 Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analysis_fields.md).
 
@@ -917,9 +917,9 @@ queued optimizations below target.
    biknn recipe is the alternative pipeline** (C1 0.6102 confirmed, production-ready, 1 call).
    Remaining checks on hers: clarify her 0.6881 vs. our repro 0.6508 (score her original
    predictions), and test her neighbour-based service rule in our pipeline (queued, item 4 above).
-2. Redo the remaining pre-cache runs that anchor claims: Docling Light v4 pair and
-   `--raw-fulltext` (queued 27 Nov as redo2; rawft runs with its known token-limit handicap —
-   the split fallback stays a code task).
+2. Done 28 Nov (redo2): the Docling Light v4 pair is competitive (DeepSeek 0.5945, near-tie), and
+   `--raw-fulltext` is **rejected** — its 0.6102 was a high variance draw (redo 0.5917); the
+   token-limit fallback stays a code task for anyone revisiting the idea.
 3. Per-paper matrix for every run (isolated `--clean-taxa` done 26 Nov).
 4. Clean up the batch directories on the GPU server and on `lenserver-hp`.
 5. Collective group, water mapping, taxa evidence (items 5-7 above).
