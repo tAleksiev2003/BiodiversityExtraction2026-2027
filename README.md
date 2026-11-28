@@ -532,7 +532,20 @@ once on a second home machine (CPU) and cached as markdown. Baseline is always p
 
 </details>
 
-Lesson: structure-aware parsing beats raw text on both models; Marker wins brochures and reports
+Lesson: structure-aware parsing beats raw text on both models
+
+**Routing distribution (how many papers run through which parser).** The `--auto-parser` decision
+uses only cheap, label-free signals (computed in seconds from the PDF + GROBID shape):
+
+| Route | Trigger | Dev (100) | Train (908) | Test set (unknown, expected range) |
+|---|---|---:|---:|---|
+| Scan / no text layer -> **Marker** (OCR) | text_layer < 0.3 or < 500 chars | 1 (1 %) | 36 (4 %) | 1–4 % |
+| **GROBID** (structured papers) | default | ~88 % | pending batch | dominant |
+| GROBID weak -> **Marker** | <= 3 sections or < 65 % text kept | 12 % | pending batch | ~10 % |
+| (planned stage 1) >= 25 pages -> **Full Docling** | page count | 41 % | 173 (19 %) | 19–41 %, prior ~19 % |
+
+Dev is long-paper-heavy (41 % vs 19 % on train), so test-set expectations should follow the train
+numbers; the planned long-paper route needs GPU OCR only for that ~19 % minority.; Marker wins brochures and reports
 where GROBID drops text, GROBID wins structured papers — hence the router. Docling Light loses.
 Minh's full Docling (OCR on) was added on 26 Nov under the v4 prompt instead of the baseline prompt,
 so it sits in the v4 table below: 0.7 C1 points behind AutoParser on DeepSeek 4.1 (within noise),
@@ -642,6 +655,7 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
   models, rejected on both.
 - **`--budget-chars` (b64k)** = total prompt character budget across sections (default 16 000; b64k = 64 000).
 - **`--level-fold` (lvlf)** = biodiversity_level decision rules folded into the main prompt instead of a second call.
+- **`--service-sharpen` (svs)** = own prompt rule: services only when the study itself examines/measures them (targets our service precision 0.20/0.11).
 - **`--service-gate` (svcg)** = drop a paper's ecosystem_service labels when none of its retrieved training neighbours has any (train-derived, threshold-free).
 - **`--bilingual-knn`** = retrieve the example papers with character n-gram TF-IDF that matches German, English and Latin taxon names (without stripping taxa like detox does).
 - **`--clean-taxa`** = post-step that deletes made-up taxa placeholders and unifies name spellings.
@@ -785,6 +799,13 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
    papers has any. Train-derived rule — see the overfitting note in the log (3f): the rule comes
    from train statistics, only its adoption decision uses dev, and it stays threshold-free to
    keep that honest.
+4b. **Own service-precision prompt rule** (`--service-sharpen`, queued as validate6): our P/R
+    analysis shows we emit services on 29 of 100 papers where gold has 8 (precision 0.20/0.11);
+    the new R9 prompt rule states that only studies examining/measuring a service themselves may
+    label it. Our own wording — Minh fixed the same problem with a post-rule instead.
+4c. **Own level-recall wording** (idea, after level-fold reads out): a recall-first variant of the
+    folded level guidance — borderline cases WITH concrete measurements count. Targets our level
+    recall 0.39 vs her 0.66 without copying her confidence mechanism.
 5. Collective-group rule for `species_group` + collective-taxa second question.
 6. Water mapping + eco-type rule (two C1 fields move together).
 7. Taxa-aware budget / dedicated taxa pass + translated names with English evidence.

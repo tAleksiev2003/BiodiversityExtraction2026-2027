@@ -916,6 +916,7 @@ def build_v4_user_prompt(
     full_text: bool = False,
     level_fold: bool = False,
     pair_german: bool = False,
+    service_sharpen: bool = False,
 ) -> str:
     """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections.
 
@@ -951,6 +952,16 @@ def build_v4_user_prompt(
         )
     r7 += "\n\n"
 
+    # Own service-precision rule (our P/R analysis: we emit services on 29/100 papers
+    # where gold has 8; precision 0.20/0.11 — background mentions are the main FP source).
+    r9 = ""
+    if service_sharpen:
+        r9 = (
+            "R9 Ecosystem_service: label a service ONLY when THIS study itself examines, measures or"
+            " quantifies it. Mentions in the background, motivation or outlook are NOT services."
+            " Most papers have no service entry at all (about 8% of gold documents).\n\n"
+        )
+
     return (
         f"## Task\nRead the text below (Title: {title}) and fill the record described in \"Fields\". "
         "Work through the reasoning steps first, then give the record.\n\n"
@@ -970,6 +981,7 @@ def build_v4_user_prompt(
         "R5 No world knowledge about locations/methods not in text (except R7 taxa names, and habitat may be derived from described environment).\n"
         "R6 Consistency: ecosystem_type term must match its category.\n"
         f"{r7}"
+        f"{r9}"
         "R8 Answer with ONE JSON object only.\n\n"
         "## Reasoning steps (write into \"reasoning\", max 120 words)\n"
         "S1 Study system -> habitat, ecosystem_type\n"
@@ -1047,6 +1059,7 @@ def main() -> None:
     parser.add_argument("--german-plural-norm", action="store_true", help="Map predicted German taxa names to their unique train-vocabulary variant (e.g. Seehund -> Seehunde)")
     parser.add_argument("--german-pairing-names", action="store_true", help="Prompt rule: every scientific_name entry must also carry its German name (DB pairing convention)")
     parser.add_argument("--eco-type-land-rule", action="store_true", help="Drop eco-type entries with term 'Äcker und Ackerbrachen' or no term when all habitats are land-only (train-derived rule)")
+    parser.add_argument("--service-sharpen", action="store_true", help="Prompt rule: label services only when the study itself examines/measures them (own precision rule)")
     parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
     parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
     parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
@@ -1151,6 +1164,7 @@ def main() -> None:
         "_gpn" if args.german_plural_norm else "",
         "_pgn" if args.german_pairing_names else "",
         "_ectl" if args.eco_type_land_rule else "",
+        "_svs" if args.service_sharpen else "",
         "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
@@ -1216,6 +1230,7 @@ def main() -> None:
                     full_text=(args.full_text or args.raw_fulltext),
                     level_fold=args.level_fold,
                     pair_german=args.german_pairing_names,
+                    service_sharpen=args.service_sharpen,
                 )
             else:
                 user_prompt = build_rag_user_prompt(
@@ -1321,6 +1336,7 @@ def main() -> None:
                 "german_plural_norm": args.german_plural_norm,
                 "german_pairing_names": args.german_pairing_names,
                 "eco_type_land_rule": args.eco_type_land_rule,
+                "service_sharpen": args.service_sharpen,
             },
         )
 
