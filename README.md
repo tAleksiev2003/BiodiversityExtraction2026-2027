@@ -685,19 +685,20 @@ C1+C2b and Micro of every non-rawft run (and the first Micro above 0.50 came fro
 redo moved that run). Parser side, both sides on fresh runs: our AutoParser (16k) vs Minh's full
 Docling JSON is now a near-tie on DeepSeek 4.1 (C1 0.5847 vs 0.5883, AutoParser ahead on C1+C2b
 and Micro), and full Docling wins all three metrics on Qwen3.6-27B (C1 +1.9). The old claim
-"AutoParser beats Docling by 2.2–2.6 C1" compared two pre-cache runs and does not survive the
-redo variance (see warning above) — the Docling Light rows need their own redo before any exact
-gap is quoted again.
+"AutoParser beats Docling by 2.2–2.6 C1" compared two pre-cache runs and is dead: the 28 Nov redo
+puts Docling Light `--full-text --v4` at 0.5945 on DeepSeek 4.1 (+1.8 vs pre-cache), above the
+redone AutoParser 16k (0.5847) — a near-tie within variance — while Minh's OCR JSON still leads
+all parsers on Qwen3.6-27B.
 
 </details>
 
 #### `--raw-fulltext` (within Phase 3, 25 Nov)
 
-Unfiltered full text, 1 call, on top of `--clean-taxa --v4-prompt`. DeepSeek 4.1: **0.6102** / 0.4822 / 0.5006
-(C1 / C1+C2b / Micro) — tied-best C1 with the post-redo `--v4 --bilingual-knn` run, best C1+C2b and Micro
-overall — but it is a pre-cache run and not production-ready: a paper longer than the context limit comes back
-empty (1 paper on DeepSeek 4.1 at 1,048,576 tokens, 3 papers on Qwen3.6-27B), so it needs a split fallback
-first. Qwen3.6-27B: 0.5458 / 0.4029 / 0.4136, rejected there.
+Unfiltered full text, 1 call, on top of `--clean-taxa --v4-prompt`. Pre-cache it scored 0.6102 / 0.4822 / 0.5006
+on DeepSeek 4.1; **the 28 Nov redo settled it: 0.5917 / 0.4717 / 0.5014** — the old C1 was a high variance draw.
+`--v4 --bilingual-knn` (16k) now beats it on C1 by 1.9 points with a split fallback, while C1+C2b and Micro are
+a tie within noise. Rejected as the final candidate (still leaves oversized papers empty). Qwen3.6-27B:
+0.5458 pre-cache / 0.5584 redo — rejected there in both draws.
 
 #### Catch-up on the complete caches (26–27 Nov, within Phase 3)
 
@@ -724,6 +725,11 @@ deletes the checkpoint and requests all 100 papers again (old predictions kept i
 `--v4 --bilingual-knn` (16k), up to 0.6102 — now the best confirmed run. Key lesson: identical
 configs moved by up to ±2.7 C1 points between runs, so small OFAT deltas are noise; details and
 the full delta table in section 3f of [docs/experiment_log.md](docs/experiment_log.md).
+**Redo2 (28 Nov, both models done):** `--raw-fulltext` confirmed as variance (DeepSeek 0.5917 vs 0.6102 pre-cache);
+Docling Light `--full-text --v4` rose to 0.5945 on DeepSeek (+1.8) — the parser comparison is a near-tie there,
+while Minh's OCR JSON still leads on Qwen3.6-27B. First flag prices (Qwen3.6-27B): recipe **minus** `--clean-taxa`
+0.5681 (+0.8, all three metrics up) — clean-taxa hurts on Qwen; recipe **plus** `--evidence-gates` 0.5713
+(+1.1 C1, rest flat) — neutral. DeepSeek prices are queued.
 
 **Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
 schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
@@ -883,9 +889,8 @@ Hypothesis: same as above — the model is right about the service and gets puni
 
 Working pipeline as of today: Architecture 3 with **AutoParser router**, **`--clean-taxa`**,
 **Minh v4 prompt + `--bilingual-knn`**, 16k budget, 1 call per paper, provider **DeepSeek 4.1**
-(redone on the complete caches 27 Nov: **C1 0.6102 / C1+C2b 0.4715 / Micro 0.4901** — best
-confirmed run; the rawft variant still holds the best C1+C2b 0.4822 and Micro 0.5006 but is
-pre-cache and lacks the token-limit fallback). Run-to-run variance is ±2–3 C1 points (see redo
+(redone on the complete caches 27 Nov: **C1 0.6102 / C1+C2b 0.4715 / Micro 0.4901** — the best
+confirmed run outright after the rawft redo fell back to 0.5917 on 28 Nov). Run-to-run variance is ±2–3 C1 points (see redo
 warning in phase 3), so treat small OFAT deltas as noise.
 
 **Efficiency (vs. Minh's pipeline F, the strongest system):** our preprocessing is CPU-only and
