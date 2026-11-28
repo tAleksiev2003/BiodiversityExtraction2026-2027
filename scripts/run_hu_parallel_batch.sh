@@ -54,7 +54,11 @@ JOBS=(
 
 hu_running() { pgrep -fc "provider hu --model" 2>/dev/null || echo 0; }
 
+LAST_PID=""
 start_job() {
+  # Sets LAST_PID (global). Must never be called inside $( ) — the log() tee
+  # output would pollute a captured value and break kill -0 bookkeeping
+  # (this exact bug started 10 runaway HU jobs on 2026-11-28).
   local spec="$1" tag run_id flags
   IFS="|" read -r tag run_id flags _ <<< "$spec"
   local d="$PROJ/outputs/architectures/$run_id"
@@ -71,7 +75,7 @@ start_job() {
   $PY -u src/models/architectures/llm_rag_sections.py \
     --provider hu --model "$MODEL" --rpm "$RPM" $flags \
     >> "$LOG_DIR/hupar_${tag}.log" 2>&1 &
-  echo $!
+  LAST_PID=$!
 }
 
 declare -A PIDS
@@ -112,7 +116,8 @@ while ! all_done; do
     [ -f "$LOG_DIR/$marker" ] && continue
     [ -n "${PIDS[$j]:-}" ] && continue
     [ "$(hu_running)" -ge "$MAX_TOTAL" ] && break
-    PIDS[$j]=$(start_job "$e")
+    start_job "$e"
+    PIDS[$j]=$LAST_PID
     sleep 5
   done
 
