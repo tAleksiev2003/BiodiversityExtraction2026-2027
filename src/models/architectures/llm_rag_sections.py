@@ -578,13 +578,34 @@ class FieldShotRetriever:
             self.indexes[field] = (ids, vectorizer.fit_transform(docs), vectorizer)
 
     def retrieve(self, query_text: str, field: str, k: int = 1) -> list[dict[str, Any]]:
-        """Returns up to k positive train records for `field`, best match first."""
+        """Returns up to k positive few-shot examples for `field`, best match first.
+
+        The examples follow the exact TrainKNNRetriever shape (title, bibtex_type,
+        compact gold_json) so format_v4_examples can render them unchanged.
+        """
         if field not in self.indexes:
             return []
         ids, matrix, vectorizer = self.indexes[field]
         sims = cosine_similarity(vectorizer.transform([query_text]), matrix).ravel()
         top = np.argsort(-sims)[:k]
-        return [self.train_records[ids[int(i)]] for i in top]
+        examples = []
+        for i in top:
+            rec = self.train_records[ids[int(i)]]
+            gold_compact = {
+                "habitat": rec.get("habitat", []),
+                "biodiversity_level": rec.get("biodiversity_level", []),
+                "ecosystem_type": rec.get("ecosystem_type", []),
+                "taxa": rec.get("taxa", []),
+                "ecosystem_service": rec.get("ecosystem_service", []),
+            }
+            examples.append(
+                {
+                    "title": str(rec.get("bibtex_title") or "")[:180],
+                    "bibtex_type": str(rec.get("bibtex_type") or "unknown"),
+                    "gold_json": gold_compact,
+                }
+            )
+        return examples
 
 
 def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
