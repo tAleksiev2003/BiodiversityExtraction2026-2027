@@ -736,9 +736,10 @@ configs moved by up to ±2.7 C1 points between runs, so small OFAT deltas are no
 the full delta table in section 3f of [docs/experiment_log.md](docs/experiment_log.md).
 **Redo2 (28 Nov, both models done):** `--raw-fulltext` confirmed as variance (DeepSeek 0.5917 vs 0.6102 pre-cache);
 Docling Light `--full-text --v4` rose to 0.5945 on DeepSeek (+1.8) — the parser comparison is a near-tie there,
-while Minh's OCR JSON still leads on Qwen3.6-27B. First flag prices (Qwen3.6-27B): recipe **minus** `--clean-taxa`
-0.5681 (+0.8, all three metrics up) — clean-taxa hurts on Qwen; recipe **plus** `--evidence-gates` 0.5713
-(+1.1 C1, rest flat) — neutral. DeepSeek prices are queued.
+while Minh's OCR JSON still leads on Qwen3.6-27B. **Flag prices (both models done):** `--clean-taxa` is a real
+keeper on DeepSeek (removing it costs −3.9 C1, outside variance) and inconclusive on Qwen (+0.8 without);
+`--evidence-gates` is neutral on both (DeepSeek −0.4, Qwen +1.1 C1, rest flat) — rejected, the v4 prompt
+already has its own quote check. Budget 64k on Qwen: flat to slightly negative; DeepSeek twin queued.
 
 **Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
 schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
