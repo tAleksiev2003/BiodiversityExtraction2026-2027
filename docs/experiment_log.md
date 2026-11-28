@@ -307,6 +307,8 @@ Failure patterns (papers can hit several):
 | **Budget cuts** | 2/10 papers, ~5 label cases (`3Z5BFIBL` taxa list, `4Z67G9T5` "-", `V2BVMBPF` level probe was IN budget) | evidence beyond/borderline of the 16k window | budget-chars 64k (running now) |
 | **Scan papers** | 1/10 (`V2BVMBPF`, 1975 scan) | OCR route works partially; several labels remain unrecoverable | router scan rule |
 
+**Plural-convention check (same day, `german_plural_check.py` over all 908 train + 100 dev gold labels).** German taxa names are plural-dominant but NOT mechanically plural: Seehunde 11/0, Vögel 39/0, Insekten 14/0, Pflanzen 36/0, Bäume 9/0 (singular never in gold) — but **Kegelrobbe 10x singular, Kegelrobben 0x** and Fisch 9 vs Fische 61 (mixed). The convention follows the DB's per-name label history, not a grammar rule. A train-vocabulary-driven normaliser (map a predicted non-vocab form to a unique vocab variant, e.g. Seehund -> Seehunde) fixes exactly 1 label on dev (`64C65W5I`, FP->TP double effect, ~+0.0004 C1) — too small for its own OFAT; fold it into clean-taxa for the full-set run instead, where 900+ papers give it more surface. Vocabulary comes from train only, no dev fitting.
+
 Takeaway: our remaining error mass is dominated by gold-convention/gold-noise papers, not by parser or budget failures — the two running tests (budget, level-fold) hit the smaller patterns; the biggest single new lever is the eco-type convention (train-derived, like the service gate).
 
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
