@@ -38,6 +38,12 @@ FLAG_MAP = {
     "lvl": "--level-prompt",
     "v4": "--v4-prompt",
     "biknn": "--bilingual-knn",
+    "lvlf": "--level-fold",
+    "b64k": "--budget-chars 64000",
+    "svcg": "--service-gate",
+    "gpn": "--german-plural-norm",
+    "pgn": "--german-pairing-names",
+    "ectl": "--eco-type-land-rule",
 }
 
 

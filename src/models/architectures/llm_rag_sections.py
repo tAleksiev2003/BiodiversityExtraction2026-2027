@@ -500,6 +500,31 @@ def apply_german_plural_norm(norm: dict[str, Any], vocab: set[str]) -> None:
             tax["german_name"] = candidates.pop()
 
 
+LAND_ONLY_HABITATS = {"Agrar- und Offenland", "Boden", "Urbane Räume"}
+
+
+def apply_eco_type_land_rule(norm: dict[str, Any]) -> int:
+    """
+    Drops ecosystem_type entries with term 'Äcker und Ackerbrachen' (or no term)
+    when every predicted habitat is land-only. Train-derived convention rule
+    (same rule Minh's pipeline adopted; 95 % bootstrap robustness there; on our
+    best run the offline counterfactual removes 13 pure FPs, +6.9 category /
+    +5.1 term F1). Threshold-free.
+    """
+    habs = set(norm.get("habitat") or [])
+    entries = norm.get("ecosystem_type") or []
+    if not habs or not entries or not habs.issubset(LAND_ONLY_HABITATS):
+        return 0
+    kept = []
+    for entry in entries:
+        term = str(entry.get("term")).strip() if entry.get("term") else None
+        if term == "Äcker und Ackerbrachen" or term is None:
+            continue
+        kept.append(entry)
+    norm["ecosystem_type"] = kept
+    return len(entries) - len(kept)
+
+
 def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
     """
     Removes fabricated '-' / species_group fallbacks when the LLM left fields null/empty,
@@ -1021,6 +1046,7 @@ def main() -> None:
     parser.add_argument("--service-gate", action="store_true", help="Drop ecosystem_service labels when none of the retrieved training neighbours has any")
     parser.add_argument("--german-plural-norm", action="store_true", help="Map predicted German taxa names to their unique train-vocabulary variant (e.g. Seehund -> Seehunde)")
     parser.add_argument("--german-pairing-names", action="store_true", help="Prompt rule: every scientific_name entry must also carry its German name (DB pairing convention)")
+    parser.add_argument("--eco-type-land-rule", action="store_true", help="Drop eco-type entries with term 'Äcker und Ackerbrachen' or no term when all habitats are land-only (train-derived rule)")
     parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
     parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
     parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
@@ -1124,6 +1150,7 @@ def main() -> None:
         "_svcg" if args.service_gate else "",
         "_gpn" if args.german_plural_norm else "",
         "_pgn" if args.german_pairing_names else "",
+        "_ectl" if args.eco_type_land_rule else "",
         "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
@@ -1255,6 +1282,13 @@ def main() -> None:
                 )
                 norm["ecosystem_service"] = []
 
+        # Eco-type land rule (train-derived convention): 'Äcker und Ackerbrachen'
+        # and term-less eco-types are dropped on land-only papers.
+        if args.eco_type_land_rule and norm.get("ecosystem_type"):
+            dropped = apply_eco_type_land_rule(norm)
+            if dropped:
+                print(f"    eco-type-land-rule: dropped {dropped} entries (land-only habitats)", flush=True)
+
         predictions[zot_id] = norm
         with ckpt_file.open("a", encoding="utf-8") as f_out:
             f_out.write(json.dumps(norm, ensure_ascii=False) + "\n")
@@ -1286,6 +1320,7 @@ def main() -> None:
                 "knn_exclude_self": args.knn_exclude_self,
                 "german_plural_norm": args.german_plural_norm,
                 "german_pairing_names": args.german_pairing_names,
+                "eco_type_land_rule": args.eco_type_land_rule,
             },
         )
 
