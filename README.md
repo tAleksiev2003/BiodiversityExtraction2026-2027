@@ -780,7 +780,7 @@ Bootstrap tables and per-field comparison: section 3f in [docs/experiment_log.md
 
 ## 4. Single sources of truth (no duplicates)
 
-- All 52 Architecture-3 runs with scores, plus every older architecture in table 3 of the same file: [docs/experiment_matrix.md](docs/experiment_matrix.md)
+- All finished Architecture-3 runs with scores, plus every older architecture in table 3 of the same file: [docs/experiment_matrix.md](docs/experiment_matrix.md)
 - Every decision with delta: in the phase sections above, full tables in [docs/experiment_log.md](docs/experiment_log.md)
 - Gold problems per paper (with legend): [docs/dev_100_paper_audit_table.md](docs/dev_100_paper_audit_table.md)
 - Overall ranking: [docs/experiment_matrix.md](docs/experiment_matrix.md) (table 3 lists every run across all architectures, regenerated 27 Nov; [docs/leaderboard_summary.md](docs/leaderboard_summary.md) stays as historical snapshot)
@@ -807,18 +807,18 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
    rules (enum definitions + base rates + main-subject rules) in the v4 prompt instead of a second
    call — the second call itself lost C1 twice; the fold is untested (biodiversity_level is the
    biggest single C1 lever).
-4. **Neighbour-based service rule** (from Minh's pipeline F, implemented as `--service-gate`,
-   queued as validate3): drop a paper's ecosystem services when none of its similar training
-   papers has any. Train-derived rule — see the overfitting note in the log (3f): the rule comes
-   from train statistics, only its adoption decision uses dev, and it stays threshold-free to
-   keep that honest.
-4b. **Own service-precision prompt rule** (`--service-sharpen`, queued as validate6): our P/R
-    analysis shows we emit services on 29 of 100 papers where gold has 8 (precision 0.20/0.11);
-    the new R9 prompt rule states that only studies examining/measuring a service themselves may
-    label it. Our own wording — Minh fixed the same problem with a post-rule instead.
-4c. **Own level-recall wording** (idea, after level-fold reads out): a recall-first variant of the
-    folded level guidance — borderline cases WITH concrete measurements count. Targets our level
-    recall 0.39 vs her 0.66 without copying her confidence mechanism.
+4. **Neighbour-based service rule** (`--service-gate`, done 28 Nov): drop a paper's ecosystem
+   services when none of its similar training papers has any. Verdict: **Qwen +1.1 C1 (adopted),
+   DeepSeek −2.3 C1 (rejected)** — provider split again.
+4b. **Own service-precision prompt rule** (`--service-sharpen`, done 28 Nov): our P/R analysis
+    shows we emit services on 29 of 100 papers where gold has 8 (precision 0.20/0.11); the R9
+    prompt rule states that only studies examining/measuring a service themselves may label it.
+    Our own wording — Minh fixed the same problem with a post-rule instead.
+    Verdict: **C1+C2b +7.1 (0.4872), service category 0.533 — above Minh's 0.522. Adopted (Qwen);
+    DeepSeek run queued behind the quota reset).**
+4c. **Own level-recall wording** (idea): level-fold was tested 28 Nov and rejected (rules alone
+    do not move recall); a recall-first wording variant remains untested and dampened — closing the
+    level gap realistically needs Minh's confidence mechanism, which we deliberately park.
 4d. **Own architecture batch (running on HU, 3 parallel since 28 Nov):** `--german-glossary` (validate7),
     `--field-retrieval` (validate7), `--doc-type-scale` (validate7) — see glossary. Bridge raised to
     3 parallel requests / 30 RPM by decision; SAIA follows later only if the approach pays off.
@@ -945,6 +945,9 @@ Working pipeline as of today: Architecture 3 with **AutoParser router**, **`--cl
 (redone on the complete caches 27 Nov: **C1 0.6102 / C1+C2b 0.4715 / Micro 0.4901** — the best
 confirmed run outright after the rawft redo fell back to 0.5917 on 28 Nov). Run-to-run variance is ±2–3 C1 points (see redo
 warning in phase 3), so treat small OFAT deltas as noise.
+**Qwen 3.6-27B recipe (own mechanisms, 28 Nov):** the same recipe plus `--service-gate` and
+`--eco-type-land-rule` reaches **C1 0.5939 / C1+C2b 0.4308**; with `--service-sharpen` C1+C2b reaches
+**0.4872** (service precision above Minh's 0.522). Stacked confirmation of the combination is running.
 
 **Efficiency (vs. Minh's pipeline F, the strongest system):** our preprocessing is CPU-only and
 takes seconds per paper — GROBID (a structure parser, ~88 % of papers) plus Marker (a layout
