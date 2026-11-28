@@ -642,6 +642,8 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
 - **`--eco-category-map` (ecomap)** = hard-coded category hints for ecosystem types.
 - **`--level-prompt` (lvl)** = extra field prompt just for `biodiversity_level`.
 - **`--german-plural-norm` (gpn)** = maps a predicted German taxa name to its unique train-vocabulary variant (e.g. Seehund -> Seehunde); never touches names already in the vocabulary (so singular-only conventions like 'Kegelrobbe' survive).
+- **`--german-pairing-names` (pgn)** = prompt rule from the DB pairing convention (93 % of gold taxa entries carry scientific + German name, 0 are latin-only): every entry with a scientific_name must also carry its German name, translated if needed.
+- **`--eco-type-land-rule` (ectl)** = drops eco-type entries with term 'Äcker und Ackerbrachen' (or no term) on papers whose habitats are all land-only — Minh's train-derived convention rule (95 % bootstrap robust there); on our best run the offline counterfactual removes 13 pure FPs: category F1 0.625 -> 0.694, term F1 0.551 -> 0.602.
 
 </details>
 
@@ -812,6 +814,11 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   Implemented already: `--german-plural-norm` — the smallest safe piece of that plan
   (train-vocabulary-driven, unique variant only, unit-tested; measured +1 label on dev,
   so it skips a separate OFAT and rides in the production full-set run).
+  Also measured 27 Nov (`german_leak_check.py`): we emit 24–32 German names on the 37 papers
+  without gold taxa — pure FPs; emptying them would raise german_name F1 by +2.1–2.3 points.
+  The pairing rule trades that leak against the ~19 missed pairings, so it runs as an OFAT
+  (validate4 queue) instead of being adopted by assumption. The eco-type side has its own
+  train-derived rule now: `--eco-type-land-rule` (validate5 queue).
   Measured 27 Nov (`german_leak_check.py`): we also emit 24–32 German names on the 37 papers
   without gold taxa — pure FPs; emptying them would raise german_name F1 by +2.1–2.3 points.
   The pairing rule trades that leak against the ~19 missed pairings, so it runs as an OFAT
