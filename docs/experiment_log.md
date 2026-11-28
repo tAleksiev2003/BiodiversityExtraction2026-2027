@@ -291,6 +291,24 @@ ssh lenlenovo 'tmux new -d -s bio_redo_saia "bash /tmp/run_redo_queue.sh saia"' 
   --pair minh llm_rag_sections_saia_deepseek-v4.1-flash-1017_autoparser_ctaxa_v4_rawft
 ```
 
+### 3g. Exemplar error analysis: stratified random 10 wrong papers (0 API calls, 2026-11-27)
+
+Random sample (seed 42, `scripts/error_sample_analysis.py`) from the confirmed best run (`autoparser_ctaxa_v4_biknn`, DeepSeek 4.1), stratified over the four weak fields (3 level / 3 service / 2 taxa / 2 ecotype errors). 83/100 papers have >=1 error on those fields; **all 10 drawn papers are flagged in `docs/dev_100_paper_audit_table.md`** — the 33 flagged (gold-problem) papers carry most of our errors, clean papers we mostly get right.
+
+Failure patterns (papers can hit several):
+
+| Pattern | Papers (of 10) | Mechanism | Addressed by |
+|---|---|---|---|
+| **Empty-gold breadth/policy docs: model reads real content and fires** (FP inflation) | 5/10 (`29Q84X7V`, `PMJGMLUG`, `4Z67G9T5`, `4FCS62W5`, `4BAX6GKK`) | DB convention: policy/report docs get empty level/service/ecotype labels; the model legitimately finds e.g. pollination in a plant-pollinator paper and labels it — exact-match punishes right answers | precision ceiling, partially: service-gate (queued), R3/R4 already in prompt |
+| **Collective/plural taxa conventions** | 4/10 (`4Z67G9T5` "-" + group names, `3LGPK6BL` "Auenvegetation", `64C65W5I` "Seehunde" vs our "Seehund" (singular/plural exact-match miss!), `V2BVMBPF`) | DB uses collective German group names, the "-" rule, plurals; we output species/collectives in other forms | R7 partially; exact-match scatter (known) |
+| **Eco-type convention mapping** | 5/10 | Floodplain studies -> DB "II Binnengewässer/Fließende Gewässer" (the Aue->II convention), marine state-reports -> empty; we choose ecologically reasonable terrestrial/marine categories instead | NOT addressed yet; candidate: train-derived convention note (same legitimacy class as the service gate) |
+| **Level default-bias** | 3/10 (`3LGPK6BL`, `3Z5BFIBL`, `29Q84X7V`) | evidence for "Zusammensetzung der Artengemeinschaft" present in text (probe: DOC), we pick the frequent default "Artenvielfalt" | level-fold (running now) |
+| **German names for English papers** | 2/10 (`4FCS62W5` Latin all correct, German names missing) | German names are translations, quote gate demands verbatim German | queued hypothesis "translated names + English evidence" |
+| **Budget cuts** | 2/10 papers, ~5 label cases (`3Z5BFIBL` taxa list, `4Z67G9T5` "-", `V2BVMBPF` level probe was IN budget) | evidence beyond/borderline of the 16k window | budget-chars 64k (running now) |
+| **Scan papers** | 1/10 (`V2BVMBPF`, 1975 scan) | OCR route works partially; several labels remain unrecoverable | router scan rule |
+
+Takeaway: our remaining error mass is dominated by gold-convention/gold-noise papers, not by parser or budget failures — the two running tests (budget, level-fold) hit the smaller patterns; the biggest single new lever is the eco-type convention (train-derived, like the service gate).
+
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
 
 ### 4b. Cheap Pre-Filter Router — offline validation (0 API calls, 2026-11-27)
