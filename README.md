@@ -762,6 +762,11 @@ already has its own quote check. Budget 64k: rejected on BOTH models (Qwen flat/
 Minh's edge. Service-gate is provider-split: helps Qwen (+1.1 C1), hurts DeepSeek (−2.3 C1) —
 adopted for Qwen only. Pairing rule on Qwen: +0.7 C1, german names +4 points (kept as candidate).
 SAIA daily quota blocked the DeepSeek chain on 28 Nov (~20 h); HU batch continues 3-parallel.
+**Own-mechanism batch results (Qwen):** `--eco-type-land-rule` **C1 0.5939 (+3.4, outside variance)**
+— adopted; `--service-sharpen` (our own prompt rule) **C2b 0.4872 (+7.1, biggest C2b jump yet)** and
+service category 0.533 — now above Minh's 0.522 on the same evaluator; `--doc-type-scale` +1.1 C1
+(candidate); `--german-glossary` neutral (full-set only). Emerging Qwen recipe needs one stacked
+confirmation run.
 
 **Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
 schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
