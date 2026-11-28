@@ -323,6 +323,8 @@ Failure patterns (papers can hit several):
 
 **Precision-leak check + pairing rule implemented (27 Nov, `german_leak_check.py`, flag `--german-pairing-names` / `_pgn`).** All 37 papers without gold German names have no gold taxa at all (consistent with the 0 latin-only convention). The best runs emit 24 (SAIA) / 32 (HU) German names there — pure FPs; the oracle counterfactual (emptying those papers) lifts german_name F1 by +2.1 / +2.3 points (0.335 -> 0.356 SAIA). The new `--german-pairing-names` prompt rule (R7 extension: every scientific_name must carry its German name, translated if needed) trades this leak against the 19 missed pairings, so it is queued as OFAT (validate4, `scripts/run_validate4_queue.sh`: SAIA waits for trainverif, HU waits for validate3) rather than adopted by assumption.
 
+**Idea check: term/category consistency rule — dead (28 Nov, `term_category_check.py`).** Every gold term belongs to exactly one category, but the best run emits ZERO category-inconsistent terms (the v4 prompt already lists terms grouped under their category). Rule would touch nothing; not queued.
+
 Takeaway: our remaining error mass is dominated by gold-convention/gold-noise papers, not by parser or budget failures — the two running tests (budget, level-fold) hit the smaller patterns; the biggest single new lever is the eco-type convention (train-derived, like the service gate).
 
 ### 4. 4-Way Parser Diff & Objective Routing Analysis (0 API Calls, 2026-11-21)
