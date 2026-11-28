@@ -635,6 +635,14 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
 
 - **v4** = Minh's cohesive prompt version 4 (train examples + document focus + quote check, see setup above).
 - **`--full-text`** = put the whole untruncated parser text in the prompt instead of the 16k section budget.
+- **`--raw-fulltext` (rawft — tried, rejected 28 Nov).** Idea: raw untruncated parser text in ONE
+  call with no split at all. Pre-cache it topped our leaderboard (0.6102 C1), but the redo settled it
+  1.9 C1 points below `--bilingual-knn` (the early lead was a variance draw), and over-long papers
+  come back empty because there is no split fallback (1 paper on DeepSeek, 3 on Qwen). Tried on both
+  models, rejected on both.
+- **`--budget-chars` (b64k)** = total prompt character budget across sections (default 16 000; b64k = 64 000).
+- **`--level-fold` (lvlf)** = biodiversity_level decision rules folded into the main prompt instead of a second call.
+- **`--service-gate` (svcg)** = drop a paper's ecosystem_service labels when none of its retrieved training neighbours has any (train-derived, threshold-free).
 - **`--bilingual-knn`** = retrieve the example papers with character n-gram TF-IDF that matches German, English and Latin taxon names (without stripping taxa like detox does).
 - **`--clean-taxa`** = post-step that deletes made-up taxa placeholders and unifies name spellings.
 - **`--self-check-reasoning` (s5)** = explicit reasoning steps S1–S5 plus taxa rules R7 in the prompt.
