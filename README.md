@@ -806,6 +806,10 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   Implemented already: `--german-plural-norm` — the smallest safe piece of that plan
   (train-vocabulary-driven, unique variant only, unit-tested; measured +1 label on dev,
   so it skips a separate OFAT and rides in the production full-set run).
+  Measured 27 Nov (`german_leak_check.py`): we also emit 24–32 German names on the 37 papers
+  without gold taxa — pure FPs; emptying them would raise german_name F1 by +2.1–2.3 points.
+  The pairing rule trades that leak against the ~19 missed pairings, so it runs as an OFAT
+  (validate4 queue) instead of being adopted by assumption.
 
 ## 6. Limitations: where we still fail
 

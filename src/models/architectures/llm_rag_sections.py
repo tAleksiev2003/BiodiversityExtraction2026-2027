@@ -890,6 +890,7 @@ def build_v4_user_prompt(
     max_total_chars: int = 16000,
     full_text: bool = False,
     level_fold: bool = False,
+    pair_german: bool = False,
 ) -> str:
     """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections.
 
@@ -910,6 +911,21 @@ def build_v4_user_prompt(
     examples_str = format_v4_examples(few_shot_examples)
     title = str(rec.get("bibtex_title") or "").strip()
 
+    # R7, optionally extended by the DB pairing convention (93% of gold taxa
+    # entries carry sci+german; 0 are latin-only): a scientific name always
+    # comes with its common German name, translated if the paper is not German.
+    r7 = (
+        "R7 Taxa names: scientific names WITHOUT author/year ('Fagus sylvatica', not 'Fagus sylvatica L.'); "
+        "genus only -> 'Genus spp.'; German names capitalized ('Rot-Buche'); at most 10 taxa entries (if more, give higher group)."
+    )
+    if pair_german:
+        r7 += (
+            " Every entry with a scientific_name MUST also carry german_name: give the common German name,"
+            " translating it if the document is not German (e.g. 'Gadus morhua' -> 'Atlantischer Kabeljau');"
+            " German-only collective entries are also valid (e.g. 'Wildbestäuber')."
+        )
+    r7 += "\n\n"
+
     return (
         f"## Task\nRead the text below (Title: {title}) and fill the record described in \"Fields\". "
         "Work through the reasoning steps first, then give the record.\n\n"
@@ -928,7 +944,7 @@ def build_v4_user_prompt(
         "R4 Empirical rates: habitat ~94% (usually 1), taxa ~73%, biodiversity_level ~58%, ecosystem_type ~50% (usually <=1 pair), ecosystem_service ~22%. Empty is valid except usually habitat.\n"
         "R5 No world knowledge about locations/methods not in text (except R7 taxa names, and habitat may be derived from described environment).\n"
         "R6 Consistency: ecosystem_type term must match its category.\n"
-        "R7 Taxa names: scientific names WITHOUT author/year ('Fagus sylvatica', not 'Fagus sylvatica L.'); genus only -> 'Genus spp.'; German names capitalized ('Rot-Buche'); at most 10 taxa entries (if more, give higher group).\n"
+        f"{r7}"
         "R8 Answer with ONE JSON object only.\n\n"
         "## Reasoning steps (write into \"reasoning\", max 120 words)\n"
         "S1 Study system -> habitat, ecosystem_type\n"
@@ -1004,6 +1020,7 @@ def main() -> None:
     parser.add_argument("--level-fold", action="store_true", help="Fold biodiversity_level decision rules into the main prompt (no second call)")
     parser.add_argument("--service-gate", action="store_true", help="Drop ecosystem_service labels when none of the retrieved training neighbours has any")
     parser.add_argument("--german-plural-norm", action="store_true", help="Map predicted German taxa names to their unique train-vocabulary variant (e.g. Seehund -> Seehunde)")
+    parser.add_argument("--german-pairing-names", action="store_true", help="Prompt rule: every scientific_name entry must also carry its German name (DB pairing convention)")
     parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
     parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
     parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
@@ -1106,6 +1123,7 @@ def main() -> None:
         "_lvlf" if args.level_fold else "",
         "_svcg" if args.service_gate else "",
         "_gpn" if args.german_plural_norm else "",
+        "_pgn" if args.german_pairing_names else "",
         "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
@@ -1170,6 +1188,7 @@ def main() -> None:
                     max_total_chars=args.budget_chars,
                     full_text=(args.full_text or args.raw_fulltext),
                     level_fold=args.level_fold,
+                    pair_german=args.german_pairing_names,
                 )
             else:
                 user_prompt = build_rag_user_prompt(
@@ -1266,6 +1285,7 @@ def main() -> None:
                 "split": args.split,
                 "knn_exclude_self": args.knn_exclude_self,
                 "german_plural_norm": args.german_plural_norm,
+                "german_pairing_names": args.german_pairing_names,
             },
         )
 
