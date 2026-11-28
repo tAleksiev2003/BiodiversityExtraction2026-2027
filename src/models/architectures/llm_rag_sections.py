@@ -459,6 +459,47 @@ def extract_marker_sections(
     return extract_markdown_cached_sections(zot_id, rec, pdf_dir, cache_subdir, None)
 
 
+def build_german_vocab(train_records: dict[str, dict[str, Any]]) -> set[str]:
+    """Collects every german_name the database ever used (train gold only)."""
+    vocab = set()
+    for rec in train_records.values():
+        for tax in rec.get("taxa") or []:
+            if isinstance(tax, dict) and tax.get("german_name"):
+                vocab.add(str(tax["german_name"]).strip())
+    return vocab
+
+
+def apply_german_plural_norm(norm: dict[str, Any], vocab: set[str]) -> None:
+    """
+    Maps a predicted German taxa name that is NOT in the train vocabulary to its
+    unique vocabulary variant (e.g. 'Seehund' -> 'Seehunde'). Smallest safe
+    adjustment: only fires when exactly ONE candidate exists in the vocabulary,
+    never touches names already in it (so per-name conventions like the
+    singular-only 'Kegelrobbe' are preserved). Train-derived, no dev fitting.
+    """
+    for tax in norm.get("taxa") or []:
+        name = tax.get("german_name")
+        if not name or name in vocab:
+            continue
+        stems = {name}
+        for suf in ("e", "n", "en"):
+            if name.endswith(suf) and len(name) > len(suf) + 3:
+                stems.add(name[: -len(suf)])
+        candidates = set()
+        umlauted = {
+            stem[:i] + {"a": "ä", "o": "ö", "u": "ü"}[ch] + stem[i + 1:]
+            for stem in stems
+            for i, ch in enumerate(stem)
+            if ch in "aou"
+        }  # single-vowel umlaut only ("Baum"->"Bäum"+e, never "Bäüm")
+        for stem in stems | umlauted:
+            for variant in (stem + "e", stem + "n", stem + "en", stem + "s", stem):
+                if variant != name and variant in vocab:
+                    candidates.add(variant)
+        if len(candidates) == 1:
+            tax["german_name"] = candidates.pop()
+
+
 def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
     """
     Removes fabricated '-' / species_group fallbacks when the LLM left fields null/empty,
@@ -962,6 +1003,7 @@ def main() -> None:
     parser.add_argument("--level-prompt", action="store_true", help="Focused second call (level_v1) for biodiversity_level")
     parser.add_argument("--level-fold", action="store_true", help="Fold biodiversity_level decision rules into the main prompt (no second call)")
     parser.add_argument("--service-gate", action="store_true", help="Drop ecosystem_service labels when none of the retrieved training neighbours has any")
+    parser.add_argument("--german-plural-norm", action="store_true", help="Map predicted German taxa names to their unique train-vocabulary variant (e.g. Seehund -> Seehunde)")
     parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
     parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
     parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
@@ -993,6 +1035,7 @@ def main() -> None:
 
     print("Building TF-IDF kNN index over 908 training papers...")
     train_records = load_jsonl_by_id(REPO_ROOT / "data/gold/train.jsonl")
+    german_vocab = build_german_vocab(train_records)
     retriever = TrainKNNRetriever(
         train_records, train_text_dir, detox_rag=args.detox_rag, bilingual_knn=args.bilingual_knn
     )
@@ -1062,6 +1105,7 @@ def main() -> None:
         "_rawft" if args.raw_fulltext else "",
         "_lvlf" if args.level_fold else "",
         "_svcg" if args.service_gate else "",
+        "_gpn" if args.german_plural_norm else "",
         "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
@@ -1155,6 +1199,8 @@ def main() -> None:
                 part_norm = normalize_prediction(parsed, field_spec)
                 if args.clean_taxa:
                     apply_clean_taxa(parsed, part_norm)
+            if args.german_plural_norm:
+                apply_german_plural_norm(part_norm, german_vocab)
             if args.evidence_gates and not args.per_label_quotes and not isinstance(client, DryRunMockClient):
                 apply_evidence_gates(parsed, part_norm, part_text)
             if args.level_prompt and not isinstance(client, DryRunMockClient):
@@ -1219,6 +1265,7 @@ def main() -> None:
                 "temperature": args.temperature,
                 "split": args.split,
                 "knn_exclude_self": args.knn_exclude_self,
+                "german_plural_norm": args.german_plural_norm,
             },
         )
 

@@ -641,6 +641,7 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
 - **`--per-label-quotes` (plq)** = one flat label list with a 3–60-word verbatim quote check per label.
 - **`--eco-category-map` (ecomap)** = hard-coded category hints for ecosystem types.
 - **`--level-prompt` (lvl)** = extra field prompt just for `biodiversity_level`.
+- **`--german-plural-norm` (gpn)** = maps a predicted German taxa name to its unique train-vocabulary variant (e.g. Seehund -> Seehunde); never touches names already in the vocabulary (so singular-only conventions like 'Kegelrobbe' survive).
 
 </details>
 
@@ -802,6 +803,9 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   pairs would fix 8), the rest are species we never detected or collective terms (e.g.
   "Wildbestäuber"). Planned fixes: pairing rule in the prompt (scientific_name => also give the
   German name, translate if needed) + glossary post-normalisation inside clean-taxa.
+  Implemented already: `--german-plural-norm` — the smallest safe piece of that plan
+  (train-vocabulary-driven, unique variant only, unit-tested; measured +1 label on dev,
+  so it skips a separate OFAT and rides in the production full-set run).
 
 ## 6. Limitations: where we still fail
 
