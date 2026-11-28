@@ -654,7 +654,7 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
   come back empty because there is no split fallback (1 paper on DeepSeek, 3 on Qwen). Tried on both
   models, rejected on both.
 - **`--budget-chars` (b64k)** = total prompt character budget across sections (default 16 000; b64k = 64 000).
-- **`--level-fold` (lvlf)** = biodiversity_level decision rules folded into the main prompt instead of a second call.
+- **`--level-fold` (lvlf, rejected 28 Nov)** = biodiversity_level decision rules folded into the main prompt instead of a second call; cost 0.8–1.9 C1 and did not lift level recall.
 - **`--german-glossary` (ggl)** = fills missing German taxa names from the train-derived Latin->German glossary (1.524 unambiguous pairs; +8 dev labels measured).
 - **`--field-retrieval` (fldr)** = per-field few-shot retrieval: examples for ecosystem_service/level come only from train papers that HAVE those labels (positive examples for the sparse fields; our own retrieval design).
 - **`--doc-type-scale` (dtsc)** = the model classifies the document (research/report/policy/brochure/book) and services are dropped on non-research types (train: services only on ~22 % overall, far fewer on reports; targets error pattern 'empty-gold breadth docs').
@@ -753,7 +753,9 @@ configs moved by up to ±2.7 C1 points between runs, so small OFAT deltas are no
 the full delta table in section 3f of [docs/experiment_log.md](docs/experiment_log.md).
 **Redo2 (28 Nov, both models done):** `--raw-fulltext` confirmed as variance (DeepSeek 0.5917 vs 0.6102 pre-cache);
 Docling Light `--full-text --v4` rose to 0.5945 on DeepSeek (+1.8) — the parser comparison is a near-tie there,
-while Minh's OCR JSON still leads on Qwen3.6-27B. **Flag prices (both models done):** `--clean-taxa` is a real
+while Minh's OCR JSON still leads on Qwen3.6-27B. **Level-fold rejected (28 Nov, both models):** folding Minh's level rules into the main prompt left
+level recall unchanged (0.37 vs her 0.66) and cost 0.8–1.9 C1 — prompt rules alone cannot move level
+recall; only a fire-threshold mechanism can (ours stays parked, see flag glossary). **Flag prices (both models done):** `--clean-taxa` is a real
 keeper on DeepSeek (removing it costs −3.9 C1, outside variance) and inconclusive on Qwen (+0.8 without);
 `--evidence-gates` is neutral on both (DeepSeek −0.4, Qwen +1.1 C1, rest flat) — rejected, the v4 prompt
 already has its own quote check. Budget 64k on Qwen: flat to slightly negative; DeepSeek twin queued.
