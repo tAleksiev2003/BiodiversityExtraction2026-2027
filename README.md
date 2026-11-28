@@ -792,10 +792,16 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
   `experiment_log.md` §4c), 46-paper downstream check queued (`bio_trainverif`, GROBID vs.
   Docling vs. cheap route on train labels, self-excluded few-shots). After it holds, the rules
   move into stage 1 of `--auto-parser` and get a live Dev-100 OFAT.
-- **Translated names with English evidence.** Over 85% of papers are English, so German taxa names
-  must be translated, not extracted — but the quote gate demands verbatim German quotes.
-  Hypothesis: accept the English source span as evidence for translated names (ger_name hit rate
-  only 0.25, 45 papers never right).
+- **German names: translation consistency, not gate relaxation.** Measured (27 Nov,
+  `german_name_mechanism.py`): the DB pairs 93 % of taxa entries with a German name (0 latin-only
+  entries) — 63/100 dev papers carry German gold names, 41 have them literally in the text
+  (German-language papers), 22 are English papers needing translation. On those 22 we score
+  F1 0.38 (P 0.42 / R 0.34) and DO emit 45 German names with English quotes — so the quote gate
+  is NOT the blocker (old hypothesis disproved). The misses: 19 of 56 pair to a Latin name we
+  predicted correctly (pure translation miss; a train-derived Latin->German glossary of 1524
+  pairs would fix 8), the rest are species we never detected or collective terms (e.g.
+  "Wildbestäuber"). Planned fixes: pairing rule in the prompt (scientific_name => also give the
+  German name, translate if needed) + glossary post-normalisation inside clean-taxa.
 
 ## 6. Limitations: where we still fail
 
