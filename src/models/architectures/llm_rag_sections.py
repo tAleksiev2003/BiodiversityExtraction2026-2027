@@ -503,6 +503,33 @@ def apply_german_plural_norm(norm: dict[str, Any], vocab: set[str]) -> None:
 LAND_ONLY_HABITATS = {"Agrar- und Offenland", "Boden", "Urbane Räume"}
 
 
+def build_german_glossary(train_records: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """Latin -> German name pairs from train gold; keeps unambiguous pairs only."""
+    pairs: dict[str, set[str]] = {}
+    for rec in train_records.values():
+        for tax in rec.get("taxa") or []:
+            if isinstance(tax, dict) and tax.get("scientific_name") and tax.get("german_name"):
+                pairs.setdefault(str(tax["scientific_name"]).strip(), set()).add(str(tax["german_name"]).strip())
+    return {sci: next(iter(gs)) for sci, gs in pairs.items() if len(gs) == 1}
+
+
+def apply_german_glossary(norm: dict[str, Any], glossary: dict[str, str]) -> int:
+    """
+    Fills missing german_name labels from the train-derived Latin -> German
+    glossary when the paper's scientific_name was predicted correctly. Train
+    gold pairs 93 % of taxa entries with a German name (0 latin-only), so a
+    correctly detected species with no German label is a translation miss.
+    Measured: +8 dev labels on the best run.
+    """
+    filled = 0
+    for tax in norm.get("taxa") or []:
+        sci = str(tax.get("scientific_name") or "").strip()
+        if sci and not tax.get("german_name") and sci in glossary:
+            tax["german_name"] = glossary[sci]
+            filled += 1
+    return filled
+
+
 def apply_eco_type_land_rule(norm: dict[str, Any]) -> int:
     """
     Drops ecosystem_type entries with term 'Äcker und Ackerbrachen' (or no term)
@@ -523,6 +550,41 @@ def apply_eco_type_land_rule(norm: dict[str, Any]) -> int:
         kept.append(entry)
     norm["ecosystem_type"] = kept
     return len(entries) - len(kept)
+
+
+class FieldShotRetriever:
+    """
+    Per-field few-shot retrieval over ONLY the train papers that carry a given
+    field (e.g. the 199/908 papers with ecosystem_service). Standard kNN
+    retrieves document-similar papers whose labels may be empty, which starves
+    the sparse fields of positive examples; this index guarantees every field
+    shot is a positive one.
+    """
+
+    def __init__(
+        self,
+        train_records: dict[str, dict[str, Any]],
+        train_text_dir: Path,
+        fields: tuple[str, ...] = ("ecosystem_service", "biodiversity_level"),
+    ):
+        self.train_records = train_records
+        self.indexes: dict[str, tuple[list[str], Any, Any]] = {}
+        for field in fields:
+            ids = [zid for zid, rec in sorted(train_records.items()) if rec.get(field)]
+            if len(ids) < 20:
+                continue  # too few positives to be useful
+            docs = [_load_corpus_text(zid, train_records[zid], train_text_dir) for zid in ids]
+            vectorizer = TfidfVectorizer(max_features=15000, stop_words="english", sublinear_tf=True)
+            self.indexes[field] = (ids, vectorizer.fit_transform(docs), vectorizer)
+
+    def retrieve(self, query_text: str, field: str, k: int = 1) -> list[dict[str, Any]]:
+        """Returns up to k positive train records for `field`, best match first."""
+        if field not in self.indexes:
+            return []
+        ids, matrix, vectorizer = self.indexes[field]
+        sims = cosine_similarity(vectorizer.transform([query_text]), matrix).ravel()
+        top = np.argsort(-sims)[:k]
+        return [self.train_records[ids[int(i)]] for i in top]
 
 
 def apply_clean_taxa(raw_pred: dict[str, Any], norm: dict[str, Any]) -> None:
@@ -917,6 +979,8 @@ def build_v4_user_prompt(
     level_fold: bool = False,
     pair_german: bool = False,
     service_sharpen: bool = False,
+    field_shots: dict[str, list[dict[str, Any]]] | None = None,
+    doc_type_scale: bool = False,
 ) -> str:
     """Builds Minh Anh's cohesive prompt v4 over our AutoParser sections.
 
@@ -962,6 +1026,28 @@ def build_v4_user_prompt(
             " Most papers have no service entry at all (about 8% of gold documents).\n\n"
         )
 
+    # Field-focused positive examples for the sparse fields: document-similar
+    # few-shots often carry empty labels for exactly these fields.
+    field_examples = ""
+    if field_shots:
+        for field, shots in field_shots.items():
+            if shots:
+                field_examples += (
+                    f"## Field-focused example for {field} (a training paper that HAS this field labelled)\n"
+                    + format_v4_examples(shots)
+                    + "\n\n"
+                )
+
+    doc_type_note = ""
+    if doc_type_scale:
+        doc_type_note = (
+            "## Document type (answer in the doc_type field)\n"
+            "Classify the document: research = primary study or review; report = status/monitoring report\n"
+            "by an authority or project; policy = law, regulation, strategy paper; brochure = informational\n"
+            "handout; book = monograph. Report/policy/brochure documents very rarely carry ecosystem_service\n"
+            "labels in the database.\n\n"
+        )
+
     return (
         f"## Task\nRead the text below (Title: {title}) and fill the record described in \"Fields\". "
         "Work through the reasoning steps first, then give the record.\n\n"
@@ -989,6 +1075,7 @@ def build_v4_user_prompt(
         "S3 Measurements -> biodiversity_level\n"
         "S4 Services -> ecosystem_service\n"
         "S5 Self-check: verify allowed list, exact quote, main subject (R3); drop failures.\n\n"
+        + doc_type_note +
         "## Output structure\n"
         '{"reasoning": "S1: ... S2: ... S3: ... S4: ... S5: ...", "labels": ['
         '{"field": "habitat", "value": "<allowed>", "quote": "<verbatim quote>"}, '
@@ -1000,6 +1087,7 @@ def build_v4_user_prompt(
         "## How the database labelled similar documents (training examples)\n"
         f"{examples_str}\n\n"
         + (LEVEL_FOLD_BLOCK + "\n\n" if level_fold else "")
+        + field_examples
         + f"## Text\n<<<\n{doc_text}\n>>>"
     )
 
@@ -1060,6 +1148,9 @@ def main() -> None:
     parser.add_argument("--german-pairing-names", action="store_true", help="Prompt rule: every scientific_name entry must also carry its German name (DB pairing convention)")
     parser.add_argument("--eco-type-land-rule", action="store_true", help="Drop eco-type entries with term 'Äcker und Ackerbrachen' or no term when all habitats are land-only (train-derived rule)")
     parser.add_argument("--service-sharpen", action="store_true", help="Prompt rule: label services only when the study itself examines/measures them (own precision rule)")
+    parser.add_argument("--german-glossary", action="store_true", help="Fill missing german_name labels from the train-derived Latin->German glossary")
+    parser.add_argument("--field-retrieval", action="store_true", help="Add positive field-focused training examples for ecosystem_service and biodiversity_level")
+    parser.add_argument("--doc-type-scale", action="store_true", help="Ask for a doc_type and drop ecosystem_service on report/policy/brochure/book documents")
     parser.add_argument("--split", choices=["dev", "train"], default="dev", help="Evaluate the dev-100 split (default) or train papers (router verification; needs --knn-exclude-self)")
     parser.add_argument("--ids-file", default=None, help="Optional file with paper ids to run (one per line); defaults to all ids of the split")
     parser.add_argument("--knn-exclude-self", action="store_true", help="Exclude the paper itself from kNN few-shot retrieval (mandatory for train-split scoring)")
@@ -1092,6 +1183,8 @@ def main() -> None:
     print("Building TF-IDF kNN index over 908 training papers...")
     train_records = load_jsonl_by_id(REPO_ROOT / "data/gold/train.jsonl")
     german_vocab = build_german_vocab(train_records)
+    german_glossary = build_german_glossary(train_records) if args.german_glossary else None
+    field_retriever = FieldShotRetriever(train_records, train_text_dir) if args.field_retrieval else None
     retriever = TrainKNNRetriever(
         train_records, train_text_dir, detox_rag=args.detox_rag, bilingual_knn=args.bilingual_knn
     )
@@ -1165,6 +1258,9 @@ def main() -> None:
         "_pgn" if args.german_pairing_names else "",
         "_ectl" if args.eco_type_land_rule else "",
         "_svs" if args.service_sharpen else "",
+        "_ggl" if args.german_glossary else "",
+        "_fldr" if args.field_retrieval else "",
+        "_dtsc" if args.doc_type_scale else "",
         "_tr" if args.split == "train" else "",
         (f"_b{args.budget_chars // 1000}k" if args.budget_chars != 16000 else ""),
     ])
@@ -1216,6 +1312,13 @@ def main() -> None:
             combined_clean_text, k=effective_k, exclude_id=zot_id if args.knn_exclude_self else None
         )
 
+        field_shots = None
+        if args.field_retrieval:
+            field_shots = {}
+            for shot_field in ("ecosystem_service", "biodiversity_level"):
+                shots = field_retriever.retrieve(combined_clean_text, shot_field, k=1)
+                if shots:
+                    field_shots[shot_field] = shots
         if isinstance(client, DryRunMockClient):
             client.mock_context = rec
 
@@ -1231,6 +1334,8 @@ def main() -> None:
                     level_fold=args.level_fold,
                     pair_german=args.german_pairing_names,
                     service_sharpen=args.service_sharpen,
+                    field_shots=field_shots,
+                    doc_type_scale=args.doc_type_scale,
                 )
             else:
                 user_prompt = build_rag_user_prompt(
@@ -1304,6 +1409,25 @@ def main() -> None:
             if dropped:
                 print(f"    eco-type-land-rule: dropped {dropped} entries (land-only habitats)", flush=True)
 
+        # Train-derived glossary: fill missing German names for correctly
+        # detected species (93% of gold taxa entries are sci+german pairs).
+        if args.german_glossary:
+            filled = apply_german_glossary(norm, german_glossary)
+            if filled:
+                print(f"    german-glossary: filled {filled} German names", flush=True)
+
+        # Document-type scaling: report/policy/brochure/book papers carry
+        # ecosystem_service labels extremely rarely in the database.
+        if args.doc_type_scale:
+            doc_type = str(parsed.get("doc_type") or "").strip().lower()
+            if doc_type in {"report", "policy", "brochure", "book"} and norm.get("ecosystem_service"):
+                print(
+                    f"    doc-type-scale: dropped {len(norm['ecosystem_service'])} service "
+                    f"entries (doc_type={doc_type})",
+                    flush=True,
+                )
+                norm["ecosystem_service"] = []
+
         predictions[zot_id] = norm
         with ckpt_file.open("a", encoding="utf-8") as f_out:
             f_out.write(json.dumps(norm, ensure_ascii=False) + "\n")
@@ -1337,6 +1461,9 @@ def main() -> None:
                 "german_pairing_names": args.german_pairing_names,
                 "eco_type_land_rule": args.eco_type_land_rule,
                 "service_sharpen": args.service_sharpen,
+                "german_glossary": args.german_glossary,
+                "field_retrieval": args.field_retrieval,
+                "doc_type_scale": args.doc_type_scale,
             },
         )
 

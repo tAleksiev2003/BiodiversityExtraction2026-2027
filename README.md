@@ -655,6 +655,9 @@ Our side: flags in [llm_rag_sections.py](src/models/architectures/llm_rag_sectio
   models, rejected on both.
 - **`--budget-chars` (b64k)** = total prompt character budget across sections (default 16 000; b64k = 64 000).
 - **`--level-fold` (lvlf)** = biodiversity_level decision rules folded into the main prompt instead of a second call.
+- **`--german-glossary` (ggl)** = fills missing German taxa names from the train-derived Latin->German glossary (1.524 unambiguous pairs; +8 dev labels measured).
+- **`--field-retrieval` (fldr)** = per-field few-shot retrieval: examples for ecosystem_service/level come only from train papers that HAVE those labels (positive examples for the sparse fields; our own retrieval design).
+- **`--doc-type-scale` (dtsc)** = the model classifies the document (research/report/policy/brochure/book) and services are dropped on non-research types (train: services only on ~22 % overall, far fewer on reports; targets error pattern 'empty-gold breadth docs').
 - **`--service-sharpen` (svs)** = own prompt rule: services only when the study itself examines/measures them (targets our service precision 0.20/0.11).
 - **`--service-gate` (svcg)** = drop a paper's ecosystem_service labels when none of its retrieved training neighbours has any (train-derived, threshold-free).
 - **`--bilingual-knn`** = retrieve the example papers with character n-gram TF-IDF that matches German, English and Latin taxon names (without stripping taxa like detox does).
@@ -806,6 +809,9 @@ Full per-field error analysis: [docs/error_analysis_fields.md](docs/error_analys
 4c. **Own level-recall wording** (idea, after level-fold reads out): a recall-first variant of the
     folded level guidance — borderline cases WITH concrete measurements count. Targets our level
     recall 0.39 vs her 0.66 without copying her confidence mechanism.
+4d. **Own architecture batch (running on HU, 3 parallel since 28 Nov):** `--german-glossary` (validate7),
+    `--field-retrieval` (validate7), `--doc-type-scale` (validate7) — see glossary. Bridge raised to
+    3 parallel requests / 30 RPM by decision; SAIA follows later only if the approach pays off.
 5. Collective-group rule for `species_group` + collective-taxa second question.
 6. Water mapping + eco-type rule (two C1 fields move together).
 7. Taxa-aware budget / dedicated taxa pass + translated names with English evidence.
