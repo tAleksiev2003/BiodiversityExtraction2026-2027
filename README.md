@@ -758,7 +758,10 @@ level recall unchanged (0.37 vs her 0.66) and cost 0.8–1.9 C1 — prompt rules
 recall; only a fire-threshold mechanism can (ours stays parked, see flag glossary). **Flag prices (both models done):** `--clean-taxa` is a real
 keeper on DeepSeek (removing it costs −3.9 C1, outside variance) and inconclusive on Qwen (+0.8 without);
 `--evidence-gates` is neutral on both (DeepSeek −0.4, Qwen +1.1 C1, rest flat) — rejected, the v4 prompt
-already has its own quote check. Budget 64k on Qwen: flat to slightly negative; DeepSeek twin queued.
+already has its own quote check. Budget 64k: rejected on BOTH models (Qwen flat/−0.9, DeepSeek −2.2 C1) — more context is not
+Minh's edge. Service-gate is provider-split: helps Qwen (+1.1 C1), hurts DeepSeek (−2.3 C1) —
+adopted for Qwen only. Pairing rule on Qwen: +0.7 C1, german names +4 points (kept as candidate).
+SAIA daily quota blocked the DeepSeek chain on 28 Nov (~20 h); HU batch continues 3-parallel.
 
 **Minh's pipeline on our server.** Her pipeline F ran on `lenlenovo` with our PDFs, gold files and
 schemas (25 Nov, 217 fresh requests). Scored with our evaluator on the same 100 papers:
